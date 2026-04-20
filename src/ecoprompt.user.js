@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EcoPrompt for Gmail
 // @namespace    https://ecoprompt.local
-// @version      1.0.0
+// @version      1.2.0
 // @description  Energy-aware prompt coaching for Gemini inside Gmail
 // @author       OpenAI
 // @match        https://mail.google.com/*
@@ -21,7 +21,6 @@
   const HOST_CLASS = 'ecoprompt-host';
   const ENERGY_PER_AVOIDED_PROMPT_KWH = 0.001;
   const LIGHTBULB_WATTS = 10;
-  const LAPTOP_WATTS = 60;
   const TV_WATTS = 100;
   const MICROWAVE_WATTS = 1000;
 
@@ -94,6 +93,7 @@
     eachAvoided: 'Each avoided follow-up ≈ LED bulb on for {{minutes}} extra min',
     thisWeek: 'Prompt efficiency — this week',
     today: 'Today',
+    todaysSessionLabel: 'Today\'s Session',
     type_meeting: 'Meeting request',
     type_followup: 'Follow-up',
     type_apology: 'Apology',
@@ -113,11 +113,12 @@
     apologyInsight: 'A clear incident + solution usually makes the first draft usable in one go.',
     announcementInsight: 'Naming the audience + call to action usually reduces edits and re-prompts.',
     generalInsight: 'Adding tone, recipient and desired length often avoids follow-up prompts.',
-    equivalentTitle: 'That is equivalent to',
-    equivalentLightbulb: 'LED bulb on for {{time}}',
-    equivalentLaptop: 'Laptop charging for {{time}}',
-    equivalentTv: 'TV on for {{time}}',
-    equivalentMicrowave: 'Microwave running for {{time}}',
+    equivalentTitle: 'That\'s equivalent to',
+    equivalentWaterGlass: 'A half full glass of water',
+    equivalentTapRunning: 'Leaving the tap running {{time}}',
+    equivalentLightbulb: 'Lightbulb on for {{time}}',
+    equivalentTv: 'TV running for ~{{time}}',
+    equivalentMicrowave: 'Microwave for ~{{time}}',
     qualityBadge: '{{score}}% — {{label}}',
     todaysSession: 'Today, {{date}}',
     energyEstimateNote: 'Estimated savings based on avoided follow-up prompts.',
@@ -268,16 +269,14 @@
         --ecp-advisor-bg: #f4f0dd;
         --ecp-primary: #1a73e8;
         --ecp-dark-bg: linear-gradient(180deg, #252442 0%, #17162a 100%);
-        position: absolute;
+        position: fixed;
         z-index: 2147483000;
         pointer-events: none;
         font-family: Inter, Arial, Helvetica, sans-serif;
         line-height: 1.25;
+        max-height: calc(100vh - 80px);
+        overflow-y: auto;
       }
-      .${HOST_CLASS} { position: relative !important; overflow: visible !important; }
-      #${ROOT_ID}[data-mode="mini"] { right: 18px; bottom: 58px; width: min(360px, calc(100% - 36px)); left: auto; }
-      #${ROOT_ID}[data-mode="small"] { left: 18px; right: 18px; bottom: 62px; }
-      #${ROOT_ID}[data-mode="large"] { left: 18px; right: 18px; bottom: 68px; }
       #${ROOT_ID} * { box-sizing: border-box; }
       .ecp-layout, .ecp-card, .ecp-button, .ecp-icon-button { pointer-events: auto; }
       .ecp-layout { display: flex; gap: 14px; align-items: stretch; }
@@ -360,7 +359,8 @@
     document.addEventListener('click', handleGlobalClick, true);
     document.addEventListener('input', handleInput, true);
     document.addEventListener('focusin', scanForPrompt, true);
-    window.addEventListener('resize', render);
+    window.addEventListener('resize', () => { render(); positionOverlay(); });
+    window.addEventListener('scroll', positionOverlay, true);
     observeDom();
     scanForPrompt();
     state.scanTimer = window.setInterval(scanForPrompt, 1400);
@@ -416,10 +416,10 @@
 
     if (!state.activeContext || !state.activeContext.contains(target)) return;
     const label = normalizeText(target.textContent || '');
-    if (/(^|\s)(create|generate|insert)(\s|$)/.test(label)) {
+    if (/(^|\s)(create|generate|insert|crear|generar|insertar)(\s|$)/.test(label)) {
       finalizePromptSession(true);
     }
-    if (/(^|\s)(cancel|close)(\s|$)/.test(label)) {
+    if (/(^|\s)(cancel|close|cancelar|cerrar)(\s|$)/.test(label)) {
       finalizePromptSession(false);
       clearActive();
     }
@@ -523,11 +523,11 @@
 
   function buildCandidate(input) {
     const rect = safeRect(input);
-    if (!rect || rect.width < 220 || rect.height > 140) return null;
+    if (!rect || rect.width < 200 || rect.height > 160) return null;
     let bestContext = null;
     let bestScore = 0;
     let node = input;
-    for (let depth = 0; depth < 8 && node; depth += 1, node = node.parentElement) {
+    for (let depth = 0; depth < 14 && node; depth += 1, node = node.parentElement) {
       const score = scoreContext(node);
       if (score > bestScore) {
         bestScore = score;
@@ -537,10 +537,12 @@
     let score = bestScore;
     const placeholder = normalizeText(input.getAttribute?.('placeholder') || input.getAttribute?.('aria-label') || input.getAttribute?.('title') || '');
     if (/gemini|prompt|write|email|draft/.test(placeholder)) score += 2;
-    if (document.activeElement === input || input.contains?.(document.activeElement)) score += 2;
+    const isFocused = document.activeElement === input || input.contains?.(document.activeElement);
+    if (isFocused) score += 2;
     if (rect.bottom > (window.innerHeight - 260)) score += 1;
     if (rect.height < 80) score += 1;
-    if (score < 4 || !bestContext) return null;
+    const minScore = isFocused ? 3 : 4;
+    if (score < minScore || !bestContext) return null;
     return { input, context: bestContext, composeRoot: findComposeRoot(bestContext), score };
   }
 
@@ -550,7 +552,7 @@
     const sample = normalizeText(sampleVisibleText(node));
     let score = 0;
     if (/gemini/.test(sample)) score += 4;
-    if (/help me write|help me draft/.test(sample)) score += 4;
+    if (/help me write|help me draft|ask gemini/.test(sample)) score += 4;
     if (/(create|generate|insert)/.test(sample)) score += 2;
     if (/(cancel|close)/.test(sample)) score += 1;
     if (node.querySelector('button, [role="button"]')) score += 1;
@@ -609,18 +611,41 @@
   }
 
   function mountOverlay() {
-    if (!state.activeContext) return;
-    if (!state.activeContext.classList.contains(HOST_CLASS)) state.activeContext.classList.add(HOST_CLASS);
+    if (!state.activeInput) return;
     if (!state.root) {
       const root = document.createElement('div');
       root.id = ROOT_ID;
       state.root = root;
     }
-    if (!state.activeContext.contains(state.root)) state.activeContext.appendChild(state.root);
+    if (!document.body.contains(state.root)) document.body.appendChild(state.root);
   }
 
   function unmountOverlay() {
     if (state.root && state.root.parentElement) state.root.parentElement.removeChild(state.root);
+  }
+
+  function positionOverlay() {
+    if (!state.root || !state.activeInput) return;
+    const inputRect = state.activeInput.getBoundingClientRect();
+    if (!inputRect || inputRect.width === 0) return;
+    const mode = state.store.settings.mode;
+    const gap = 10;
+    const bottomPx = window.innerHeight - inputRect.top + gap;
+    state.root.style.bottom = bottomPx + 'px';
+    state.root.style.top = 'auto';
+    if (mode === 'mini') {
+      const w = Math.min(380, inputRect.width);
+      state.root.style.right = Math.max(8, window.innerWidth - inputRect.right) + 'px';
+      state.root.style.left = 'auto';
+      state.root.style.width = w + 'px';
+    } else {
+      const composeRect = state.activeComposeRoot ? state.activeComposeRoot.getBoundingClientRect() : null;
+      const left = composeRect ? composeRect.left + 10 : inputRect.left;
+      const right = composeRect ? window.innerWidth - composeRect.right + 10 : window.innerWidth - inputRect.right;
+      state.root.style.left = Math.max(8, left) + 'px';
+      state.root.style.right = Math.max(8, right) + 'px';
+      state.root.style.width = 'auto';
+    }
   }
 
   function render() {
@@ -630,6 +655,7 @@
       state.currentAnalysis = null;
       state.root.dataset.mode = state.store.settings.mode;
       state.root.innerHTML = '';
+      positionOverlay();
       return;
     }
     const composeContext = extractComposeContext(state.activeComposeRoot);
@@ -646,11 +672,12 @@
     }
     state.root.dataset.mode = state.store.settings.mode;
     state.root.innerHTML = buildMarkup(analysis);
+    positionOverlay();
   }
 
   function extractComposeContext(composeRoot) {
     const root = composeRoot || document;
-    const toSelectors = ['input[aria-label^="To"]', 'input[aria-label*="To "]', 'input[peoplekit-id]', 'span[email]', '[data-hovercard-id]'];
+    const toSelectors = ['input[aria-label^="To"]', 'input[aria-label*="To "]', 'input[aria-label^="Para"]', 'input[aria-label*="Destinat"]', 'input[peoplekit-id]', 'span[email]', '[data-hovercard-id]'];
     const recipients = new Set();
     toSelectors.forEach((selector) => {
       root.querySelectorAll(selector).forEach((el) => {
@@ -658,7 +685,7 @@
         if (value) recipients.add(value);
       });
     });
-    const subjectEl = root.querySelector('input[name="subjectbox"], textarea[name="subjectbox"], input[placeholder*="Subject"], input[aria-label*="Subject"]');
+    const subjectEl = root.querySelector('input[name="subjectbox"], textarea[name="subjectbox"], input[placeholder*="Subject"], input[aria-label*="Subject"], input[placeholder*="Asunto"], input[aria-label*="Asunto"]');
     return { to: Array.from(recipients).join(', '), subject: subjectEl ? getInputValue(subjectEl).trim() : '' };
   }
 
@@ -744,7 +771,7 @@
           </div>
           <div class="ecp-mini-side">
             <div class="ecp-section-heading" style="color:#4f4f4f;">${escapeHtml(t('thisSaves'))}</div>
-            <ul>${buildEquivalentItems().slice(0, 3).map((item) => `<li>${item}</li>`).join('')}</ul>
+            <ul>${[...buildWaterEquivalentItems(), ...buildEquivalentItems()].slice(0, 3).map((item) => `<li>${item}</li>`).join('')}</ul>
           </div>
         </div>
         <div class="ecp-mini-actions"><button class="ecp-button ecp-button--primary" data-ecp-action="improve">${escapeHtml(t('improve'))}</button></div>
@@ -808,15 +835,15 @@
           <span class="ecp-subtitle">${escapeHtml(t('todaysSession', { date: formatToday() }))}</span>
         </div>
         <div class="ecp-stats-body">
-          <div class="ecp-section-heading">${escapeHtml(t('today'))}</div>
+          <div class="ecp-section-heading">${escapeHtml(t('todaysSessionLabel'))}</div>
           <div class="ecp-metric-grid">
             <div class="ecp-metric"><div class="ecp-metric-value">${stats.promptsAvoided}</div><div class="ecp-metric-label">${escapeHtml(t('promptsAvoided'))}</div></div>
             <div class="ecp-metric"><div class="ecp-metric-value">${totalKWh.toFixed(3)}</div><div class="ecp-metric-label">${escapeHtml(t('kWhSaved'))}</div></div>
           </div>
           ${includeWeek ? renderWeekBars() : ''}
-          <div class="ecp-equivalents"><div class="ecp-section-heading">${escapeHtml(t('equivalentTitle'))}</div><ul>${buildEquivalentItems().map((item) => `<li>${item}</li>`).join('')}</ul></div>
-          <div class="ecp-callout"><div class="ecp-section-heading">${escapeHtml(t('emailDetected'))}</div><div><strong>${escapeHtml(analysis.typeLabel)}</strong></div><div style="margin-top:6px; color:#9bf0ab;">${escapeHtml(analysis.insight)}</div></div>
-          <div class="ecp-callout ecp-callout--insight"><div class="ecp-section-heading">${escapeHtml(t('sessionStats'))}</div><div>${escapeHtml(t('energyEstimateNote'))}</div></div>
+          <div class="ecp-equivalents"><div class="ecp-section-heading">${escapeHtml(t('equivalentTitle'))}</div><ul>${buildWaterEquivalentItems().map((item) => `<li>${item}</li>`).join('')}</ul></div>
+          <div class="ecp-equivalents" style="margin-top:10px;"><div class="ecp-section-heading">${escapeHtml(t('equivalentTitle'))}</div><ul>${buildEquivalentItems().map((item) => `<li>${item}</li>`).join('')}</ul></div>
+          <div class="ecp-callout"><div class="ecp-section-heading">${escapeHtml(t('emailDetected'))}</div><div style="color:#9bf0ab; margin-top:4px;">${escapeHtml(analysis.insight)}</div></div>
         </div>
       </div>
     `;
@@ -850,11 +877,21 @@
       : `<div class="ecp-item"><div class="ecp-check">✓</div><div class="ecp-item-title"><span>${escapeHtml(item.label)}</span><span>${escapeHtml(item.hint)}</span></div></div>`;
   }
 
+  function buildWaterEquivalentItems() {
+    const kWh = round3(state.store.stats.promptsAvoided * ENERGY_PER_AVOIDED_PROMPT_KWH);
+    const waterMl = Math.round(kWh * 3600000 / (4186 * 50));
+    const tapSeconds = Math.max(1, Math.round(kWh * 3600000 / 4186));
+    const glassLabel = waterMl >= 100 ? 'A half full glass of water' : `${waterMl} ml of water heated`;
+    return [
+      `🥛 ${glassLabel}`,
+      `🚿 ${escapeHtml(t('equivalentTapRunning', { time: tapSeconds < 60 ? tapSeconds + ' sec' : Math.round(tapSeconds / 60) + ' min' }))}`
+    ];
+  }
+
   function buildEquivalentItems() {
     const kWh = round3(state.store.stats.promptsAvoided * ENERGY_PER_AVOIDED_PROMPT_KWH);
     return [
       `💡 ${escapeHtml(t('equivalentLightbulb', { time: formatDurationFromKWh(kWh, LIGHTBULB_WATTS) }))}`,
-      `💻 ${escapeHtml(t('equivalentLaptop', { time: formatDurationFromKWh(kWh, LAPTOP_WATTS) }))}`,
       `📺 ${escapeHtml(t('equivalentTv', { time: formatDurationFromKWh(kWh, TV_WATTS) }))}`,
       `🔥 ${escapeHtml(t('equivalentMicrowave', { time: formatDurationFromKWh(kWh, MICROWAVE_WATTS) }))}`
     ];
@@ -943,7 +980,7 @@
   }
 
   function normalizeText(value) {
-    return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ' ').replace(/\s+/g, ' ').trim();
+    return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
   }
 
   function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
