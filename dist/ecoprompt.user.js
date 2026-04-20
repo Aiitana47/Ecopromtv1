@@ -123,22 +123,23 @@
         position: fixed !important;
         z-index: 2147483647 !important;
         font-family: 'Google Sans', Inter, Arial, sans-serif !important;
-        line-height: 1.4 !important;
+        font-size: 12px !important;
+        line-height: 1.35 !important;
         pointer-events: none !important;
         box-sizing: border-box !important;
       }
       #${ROOT_ID} * { box-sizing: border-box !important; font-family: inherit !important; }
-      #${ROOT_ID} .ecp-wrap { pointer-events: auto; display: flex; gap: 12px; align-items: flex-end; }
+      #${ROOT_ID} .ecp-wrap { pointer-events: auto; display: flex; gap: 8px; align-items: flex-end; }
       #${ROOT_ID}[data-mode="mini"] .ecp-wrap { display: block; }
 
       /* Advisor card */
       #${ROOT_ID} .ecp-advisor {
         background: #fdf4e0;
         border: 2px solid #f2a41a;
-        border-radius: 16px;
+        border-radius: 12px;
         overflow: hidden;
-        box-shadow: 0 8px 32px rgba(0,0,0,.18);
-        min-width: 280px;
+        box-shadow: 0 6px 20px rgba(0,0,0,.16);
+        min-width: 220px;
       }
       #${ROOT_ID}[data-mode="large"] .ecp-advisor { flex: 1 1 60%; }
       #${ROOT_ID}[data-mode="small"] .ecp-advisor { flex: 1 1 55%; }
@@ -146,46 +147,46 @@
       #${ROOT_ID} .ecp-head {
         background: #f2a41a;
         color: #fff;
-        padding: 10px 14px;
+        padding: 7px 10px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        gap: 6px;
       }
-      #${ROOT_ID} .ecp-head-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
-      #${ROOT_ID} .ecp-head-btns { display: flex; gap: 5px; }
+      #${ROOT_ID} .ecp-head-title { font-weight: 700; font-size: 11px; display: flex; align-items: center; gap: 5px; }
+      #${ROOT_ID} .ecp-head-btns { display: flex; gap: 4px; }
       #${ROOT_ID} .ecp-icn {
-        width: 26px; height: 26px; border-radius: 7px; border: 1px solid rgba(255,255,255,.35);
-        background: rgba(255,255,255,.15); color: #fff; font-size: 13px; cursor: pointer;
+        width: 20px; height: 20px; border-radius: 5px; border: 1px solid rgba(255,255,255,.35);
+        background: rgba(255,255,255,.15); color: #fff; font-size: 11px; cursor: pointer;
         display: grid; place-items: center; line-height: 1;
       }
       #${ROOT_ID} .ecp-icn:hover { background: rgba(255,255,255,.3); }
 
-      #${ROOT_ID} .ecp-body { padding: 12px 14px 4px; }
-      #${ROOT_ID} .ecp-quality-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-      #${ROOT_ID} .ecp-qlabel { font-size: 13px; color: #666; min-width: 95px; }
-      #${ROOT_ID} .ecp-qbar  { flex: 1; height: 10px; background: rgba(0,0,0,.1); border-radius: 99px; overflow: hidden; }
+      #${ROOT_ID} .ecp-body { padding: 8px 10px 3px; }
+      #${ROOT_ID} .ecp-quality-row { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+      #${ROOT_ID} .ecp-qlabel { font-size: 10px; color: #666; min-width: 76px; }
+      #${ROOT_ID} .ecp-qbar  { flex: 1; height: 7px; background: rgba(0,0,0,.1); border-radius: 99px; overflow: hidden; }
       #${ROOT_ID} .ecp-qfill { height: 100%; border-radius: 99px; background: linear-gradient(90deg,#ff6b57,#ffb627 40%,#49d67d 72%,#7f8cff 100%); }
-      #${ROOT_ID} .ecp-qscore { font-size: 13px; font-weight: 700; color: #e06000; white-space: nowrap; }
+      #${ROOT_ID} .ecp-qscore { font-size: 10px; font-weight: 700; color: #e06000; white-space: nowrap; }
 
-      #${ROOT_ID} .ecp-hint  { font-size: 12px; color: #555; margin-bottom: 8px; }
-      #${ROOT_ID} .ecp-list  { display: grid; gap: 7px; margin-bottom: 8px; }
-      #${ROOT_ID} .ecp-item  { display: flex; align-items: center; gap: 8px; }
+      #${ROOT_ID} .ecp-hint  { font-size: 10px; color: #555; margin-bottom: 6px; }
+      #${ROOT_ID} .ecp-list  { display: grid; gap: 5px; margin-bottom: 6px; }
+      #${ROOT_ID} .ecp-item  { display: flex; align-items: center; gap: 6px; }
       #${ROOT_ID} .ecp-chk   {
-        width: 20px; height: 20px; border-radius: 5px; border: 2px solid rgba(0,0,0,.2);
-        background: rgba(255,255,255,.6); display: grid; place-items: center; font-size: 12px;
+        width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid rgba(0,0,0,.2);
+        background: rgba(255,255,255,.6); display: grid; place-items: center; font-size: 10px;
         color: transparent; flex-shrink: 0;
       }
       #${ROOT_ID} .ecp-item.ok .ecp-chk { background: rgba(73,214,125,.2); border-color: #3bbf63; color: #2e8d4d; }
-      #${ROOT_ID} .ecp-iname { font-weight: 600; font-size: 13px; color: #333; }
-      #${ROOT_ID} .ecp-iname span { font-weight: 400; color: #888; margin-left: 5px; }
+      #${ROOT_ID} .ecp-iname { font-weight: 600; font-size: 11px; color: #333; }
+      #${ROOT_ID} .ecp-iname span { font-weight: 400; color: #888; margin-left: 4px; font-size: 10px; }
       #${ROOT_ID} .ecp-item.ok .ecp-iname span { color: #5d8f62; }
 
-      #${ROOT_ID} .ecp-divider { border-top: 1px solid rgba(0,0,0,.08); margin: 4px -14px; }
-      #${ROOT_ID} .ecp-foot { padding: 6px 14px 4px; font-size: 12px; color: #4b8b49; }
-      #${ROOT_ID} .ecp-actions { display: flex; gap: 8px; padding: 8px 14px 12px; }
+      #${ROOT_ID} .ecp-divider { border-top: 1px solid rgba(0,0,0,.08); margin: 3px -10px; }
+      #${ROOT_ID} .ecp-foot { padding: 4px 10px 3px; font-size: 10px; color: #4b8b49; }
+      #${ROOT_ID} .ecp-actions { display: flex; gap: 6px; padding: 6px 10px 8px; }
       #${ROOT_ID} .ecp-btn {
-        border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px;
+        border: none; border-radius: 7px; padding: 6px 10px; font-size: 11px;
         font-weight: 600; cursor: pointer;
       }
       #${ROOT_ID} .ecp-btn-primary { background: #1a73e8; color: #fff; }
@@ -195,71 +196,71 @@
 
       /* Mini two-column layout */
       #${ROOT_ID}[data-mode="mini"] .ecp-cols { display: grid; grid-template-columns: 1.4fr 1fr; }
-      #${ROOT_ID}[data-mode="mini"] .ecp-col-main { padding: 10px 12px 6px; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-col-main { padding: 7px 9px 4px; }
       #${ROOT_ID}[data-mode="mini"] .ecp-col-side {
-        padding: 10px 12px 6px;
+        padding: 7px 9px 4px;
         border-left: 1px solid rgba(0,0,0,.1);
         background: rgba(255,255,255,.2);
       }
-      #${ROOT_ID}[data-mode="mini"] .ecp-col-side-title { font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
-      #${ROOT_ID}[data-mode="mini"] .ecp-col-side ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 12px; color: #333; }
-      #${ROOT_ID}[data-mode="mini"] .ecp-mini-actions { padding: 0 12px 10px; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-col-side-title { font-size: 9px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-col-side ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 10px; color: #333; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-mini-actions { padding: 0 9px 7px; }
 
       /* Stats card */
       #${ROOT_ID} .ecp-stats {
         background: linear-gradient(180deg,#252442,#17162a);
         border: 1px solid rgba(159,130,255,.28);
-        border-radius: 16px;
+        border-radius: 12px;
         color: #e9e8ff;
         overflow: hidden;
-        box-shadow: 0 8px 32px rgba(0,0,0,.22);
-        min-width: 260px;
+        box-shadow: 0 6px 20px rgba(0,0,0,.22);
+        min-width: 200px;
       }
-      #${ROOT_ID}[data-mode="large"] .ecp-stats { flex: 0 0 400px; }
-      #${ROOT_ID}[data-mode="small"] .ecp-stats { flex: 0 0 300px; }
+      #${ROOT_ID}[data-mode="large"] .ecp-stats { flex: 0 0 310px; }
+      #${ROOT_ID}[data-mode="small"] .ecp-stats { flex: 0 0 230px; }
 
-      #${ROOT_ID} .ecp-stats-head { padding: 14px 16px 8px; border-bottom: 1px solid rgba(255,255,255,.07); }
-      #${ROOT_ID} .ecp-stats-title { font-weight: 700; font-size: 14px; }
-      #${ROOT_ID} .ecp-stats-sub   { font-size: 12px; opacity: .65; margin-top: 3px; }
-      #${ROOT_ID} .ecp-stats-body  { padding: 12px 16px 16px; }
+      #${ROOT_ID} .ecp-stats-head { padding: 9px 12px 6px; border-bottom: 1px solid rgba(255,255,255,.07); }
+      #${ROOT_ID} .ecp-stats-title { font-weight: 700; font-size: 11px; }
+      #${ROOT_ID} .ecp-stats-sub   { font-size: 10px; opacity: .65; margin-top: 2px; }
+      #${ROOT_ID} .ecp-stats-body  { padding: 8px 12px 12px; }
 
-      #${ROOT_ID} .ecp-section { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: rgba(233,232,255,.55); margin-bottom: 8px; }
-      #${ROOT_ID} .ecp-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
-      #${ROOT_ID} .ecp-metric { background: rgba(255,255,255,.06); border-radius: 10px; padding: 10px; text-align: center; }
-      #${ROOT_ID} .ecp-metric-val { font-size: 22px; font-weight: 800; color: #58f394; }
-      #${ROOT_ID} .ecp-metric-lbl { font-size: 12px; color: rgba(233,232,255,.65); margin-top: 2px; }
+      #${ROOT_ID} .ecp-section { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: rgba(233,232,255,.55); margin-bottom: 6px; }
+      #${ROOT_ID} .ecp-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 9px; }
+      #${ROOT_ID} .ecp-metric { background: rgba(255,255,255,.06); border-radius: 8px; padding: 7px 6px; text-align: center; }
+      #${ROOT_ID} .ecp-metric-val { font-size: 18px; font-weight: 800; color: #58f394; }
+      #${ROOT_ID} .ecp-metric-lbl { font-size: 10px; color: rgba(233,232,255,.65); margin-top: 1px; }
 
-      #${ROOT_ID} .ecp-week { display: grid; gap: 6px; margin-bottom: 12px; }
-      #${ROOT_ID} .ecp-week-row { display: grid; grid-template-columns: 32px 1fr 38px; gap: 8px; align-items: center; font-size: 13px; }
-      #${ROOT_ID} .ecp-week-track { height: 8px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+      #${ROOT_ID} .ecp-week { display: grid; gap: 4px; margin-bottom: 9px; }
+      #${ROOT_ID} .ecp-week-row { display: grid; grid-template-columns: 26px 1fr 30px; gap: 6px; align-items: center; font-size: 10px; }
+      #${ROOT_ID} .ecp-week-track { height: 6px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
       #${ROOT_ID} .ecp-week-fill  { height: 100%; border-radius: 99px; background: linear-gradient(90deg,#ff7f7f,#ffb04d 30%,#b8de22 58%,#49d67d 78%,#9f82ff 100%); }
 
       #${ROOT_ID} .ecp-equiv {
         background: rgba(39,113,255,.18);
         border: 1px solid rgba(83,152,255,.28);
-        border-radius: 12px;
-        padding: 10px 12px;
-        margin-bottom: 10px;
+        border-radius: 9px;
+        padding: 7px 9px;
+        margin-bottom: 7px;
       }
-      #${ROOT_ID} .ecp-equiv ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13px; }
+      #${ROOT_ID} .ecp-equiv ul { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 10px; }
       #${ROOT_ID} .ecp-callout {
         background: linear-gradient(180deg,rgba(20,65,18,.72),rgba(20,48,18,.92));
         border: 1px solid rgba(98,226,123,.25);
-        border-radius: 12px;
-        padding: 10px 12px;
-        font-size: 13px;
+        border-radius: 9px;
+        padding: 7px 9px;
+        font-size: 10px;
         color: #9bf0ab;
       }
-      #${ROOT_ID} .ecp-callout-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: rgba(233,232,255,.55); margin-bottom: 5px; }
+      #${ROOT_ID} .ecp-callout-title { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: rgba(233,232,255,.55); margin-bottom: 4px; }
 
       /* Toast */
       .ecp-toast {
-        position: fixed !important; bottom: 20px !important; right: 20px !important;
+        position: fixed !important; bottom: 16px !important; right: 16px !important;
         z-index: 2147483647 !important; background: rgba(28,32,53,.95) !important;
         border: 1px solid rgba(159,130,255,.35) !important; color: #fff !important;
-        padding: 10px 14px !important; border-radius: 10px !important;
-        font-family: 'Google Sans', Inter, Arial, sans-serif !important; font-size: 13px !important;
-        box-shadow: 0 8px 24px rgba(0,0,0,.25) !important;
+        padding: 7px 10px !important; border-radius: 8px !important;
+        font-family: 'Google Sans', Inter, Arial, sans-serif !important; font-size: 11px !important;
+        box-shadow: 0 6px 18px rgba(0,0,0,.25) !important;
       }
     `;
     if (typeof GM_addStyle === 'function') {
@@ -679,26 +680,29 @@
   }
 
   function waterItems() {
-    const kwh = state.store.promptsAvoided * KWH_PER_AVOIDED;
+    const n   = state.store.promptsAvoided;
+    const kwh = Math.max(1, n) * KWH_PER_AVOIDED;
     const ml  = Math.round(kwh * 3600000 / (4186 * 50));
     const tap = Math.max(1, Math.round(kwh * 360000 / 4186));
+    const prefix = n === 0 ? 'Per prompt: ' : '';
     return [
-      `🥛 ${ml >= 100 ? 'A half full glass of water' : ml + ' ml of heated water'}`,
-      `🚿 Leaving the tap running ${tap < 60 ? tap + ' sec' : Math.round(tap / 60) + ' min'}`
+      `🥛 ${prefix}${ml >= 100 ? 'A half full glass of water' : ml + ' ml of heated water'}`,
+      `🚿 ${prefix}Tap running ${tap < 60 ? tap + ' sec' : Math.round(tap / 60) + ' min'}`
     ];
   }
 
   function energyItems() {
-    const kwh = state.store.promptsAvoided * KWH_PER_AVOIDED;
+    const n   = state.store.promptsAvoided;
+    const kwh = Math.max(1, n) * KWH_PER_AVOIDED;
+    const prefix = n === 0 ? 'Per prompt: ' : '';
     return [
-      `💡 Lightbulb on for ${dur(kwh, 10)}`,
-      `📺 TV running for ~${dur(kwh, 100)}`,
-      `🔥 Microwave for ~${dur(kwh, 1000)}`
+      `💡 ${prefix}Lightbulb on for ${dur(kwh, 10)}`,
+      `📺 ${prefix}TV running for ~${dur(kwh, 100)}`,
+      `🔥 ${prefix}Microwave for ~${dur(kwh, 1000)}`
     ];
   }
 
   function dur(kwh, watts) {
-    if (!kwh || kwh <= 0) return '0 sec';
     const mins = (kwh / (watts / 1000)) * 60;
     if (mins < 1)  return Math.max(1, Math.round(mins * 60)) + ' sec';
     if (mins < 60) return Math.round(mins) + ' min';
