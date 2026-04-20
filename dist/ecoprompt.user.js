@@ -521,6 +521,7 @@
     const rawText = getInputValue(state.activeInput).trim();
     const compose = extractComposeContext(findComposeRoot(state.activeInput));
     const analysis = analyzePrompt(rawText || 'write an email', compose);
+    analysis.isEmpty = !rawText;
 
     state.root.dataset.mode = state.store.mode;
     setHTML(state.root, buildMarkup(analysis));
@@ -613,11 +614,13 @@
   }
 
   function qualityRow(a) {
+    const score  = a.isEmpty ? 0    : a.score;
+    const label  = a.isEmpty ? 'start typing' : a.scoreLabel;
     return `
       <div class="ecp-quality-row">
         <div class="ecp-qlabel">Prompt quality</div>
-        <div class="ecp-qbar"><div class="ecp-qfill" style="width:${a.score}%"></div></div>
-        <div class="ecp-qscore">${a.score}% — ${a.scoreLabel}</div>
+        <div class="ecp-qbar"><div class="ecp-qfill" style="width:${score}%"></div></div>
+        <div class="ecp-qscore">${a.isEmpty ? '—' : score + '%'} — ${label}</div>
       </div>`;
   }
 
