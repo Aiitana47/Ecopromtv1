@@ -522,6 +522,10 @@
     const compose = extractComposeContext(findComposeRoot(state.activeInput));
     const analysis = analyzePrompt(rawText || 'write an email', compose);
     analysis.isEmpty = !rawText;
+    if (analysis.isEmpty) {
+      analysis.items.forEach(i => { i.detected = false; });
+      analysis.missing = analysis.items;
+    }
 
     state.root.dataset.mode = state.store.mode;
     setHTML(state.root, buildMarkup(analysis));
