@@ -680,31 +680,28 @@
   }
 
   function waterItems() {
-    const n   = state.store.promptsAvoided;
-    const kwh = Math.max(1, n) * KWH_PER_AVOIDED;
+    const kwh = state.store.promptsAvoided * KWH_PER_AVOIDED;
     const ml  = Math.round(kwh * 3600000 / (4186 * 50));
-    const tap = Math.max(1, Math.round(kwh * 360000 / 4186));
-    const prefix = n === 0 ? 'Per prompt: ' : '';
+    const tap = Math.round(kwh * 360000 / 4186);
     return [
-      `🥛 ${prefix}${ml >= 100 ? 'A half full glass of water' : ml + ' ml of heated water'}`,
-      `🚿 ${prefix}Tap running ${tap < 60 ? tap + ' sec' : Math.round(tap / 60) + ' min'}`
+      `🥛 ${ml >= 100 ? 'A half full glass of water' : ml + ' ml of heated water'}`,
+      `🚿 Tap running ${tap < 60 ? tap + ' sec' : Math.round(tap / 60) + ' min'}`
     ];
   }
 
   function energyItems() {
-    const n   = state.store.promptsAvoided;
-    const kwh = Math.max(1, n) * KWH_PER_AVOIDED;
-    const prefix = n === 0 ? 'Per prompt: ' : '';
+    const kwh = state.store.promptsAvoided * KWH_PER_AVOIDED;
     return [
-      `💡 ${prefix}Lightbulb on for ${dur(kwh, 10)}`,
-      `📺 ${prefix}TV running for ~${dur(kwh, 100)}`,
-      `🔥 ${prefix}Microwave for ~${dur(kwh, 1000)}`
+      `💡 Lightbulb on for ${dur(kwh, 10)}`,
+      `📺 TV running for ~${dur(kwh, 100)}`,
+      `🔥 Microwave for ~${dur(kwh, 1000)}`
     ];
   }
 
   function dur(kwh, watts) {
+    if (!kwh || kwh <= 0) return '0 sec';
     const mins = (kwh / (watts / 1000)) * 60;
-    if (mins < 1)  return Math.max(1, Math.round(mins * 60)) + ' sec';
+    if (mins < 1)  return Math.round(mins * 60) + ' sec';
     if (mins < 60) return Math.round(mins) + ' min';
     const h = Math.floor(mins / 60), m = Math.round(mins % 60);
     return m ? `${h} hr ${m} min` : `${h} hr`;
