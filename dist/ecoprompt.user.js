@@ -363,7 +363,7 @@
     window.addEventListener('scroll', positionOverlay, true);
     observeDom();
     scanForPrompt();
-    state.scanTimer = window.setInterval(scanForPrompt, 1400);
+    state.scanTimer = window.setInterval(scanForPrompt, 600);
   }
 
   function observeDom() {
@@ -414,12 +414,19 @@
       return;
     }
 
+    // Trigger immediate scan when clicking the "Help me write" button
+    const clickedText = normalizeText(target.textContent || target.getAttribute('aria-label') || '');
+    if (/help me write|help me draft|ask gemini/.test(clickedText)) {
+      window.setTimeout(scanForPrompt, 120);
+      window.setTimeout(scanForPrompt, 400);
+    }
+
     if (!state.activeContext || !state.activeContext.contains(target)) return;
     const label = normalizeText(target.textContent || '');
-    if (/(^|\s)(create|generate|insert|crear|generar|insertar)(\s|$)/.test(label)) {
+    if (/(^|\s)(create|generate|insert)(\s|$)/.test(label)) {
       finalizePromptSession(true);
     }
-    if (/(^|\s)(cancel|close|cancelar|cerrar)(\s|$)/.test(label)) {
+    if (/(^|\s)(cancel|close)(\s|$)/.test(label)) {
       finalizePromptSession(false);
       clearActive();
     }
@@ -511,6 +518,11 @@
   }
 
   function detectActivePrompt() {
+    // Primary: Gmail Gemini "Help me write" bar (Cancel + Create pattern)
+    const gmailBar = detectGmailGeminiBar();
+    if (gmailBar) return gmailBar;
+
+    // Fallback: generic scoring
     const allCandidates = Array.from(document.querySelectorAll('textarea, input[type="text"], [contenteditable="true"], [role="textbox"]'))
       .filter(isPotentialPromptInput)
       .map(buildCandidate)
@@ -519,6 +531,49 @@
     if (!allCandidates.length) return null;
     const focused = allCandidates.find((candidate) => candidate.input === document.activeElement || candidate.input.contains?.(document.activeElement));
     return focused || allCandidates[0];
+  }
+
+  function detectGmailGeminiBar() {
+    // The Gemini "Help me write" bar always has a visible "Cancel" button next to a "Create" button
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
+    for (const btn of buttons) {
+      const btnText = normalizeText(btn.textContent || btn.getAttribute('aria-label') || '');
+      if (btnText !== 'cancel') continue;
+      const btnRect = safeRect(btn);
+      if (!btnRect || btnRect.height === 0) continue;
+
+      // Confirm there is also a "Create" button nearby (same parent or grandparent)
+      let container = btn.parentElement;
+      let found = false;
+      for (let d = 0; d < 5 && container; d++, container = container.parentElement) {
+        const ctxText = normalizeText(sampleVisibleText(container));
+        if (/create/.test(ctxText)) { found = true; break; }
+      }
+      if (!found) continue;
+
+      // Now find the text input inside that container
+      const inputs = Array.from(container.querySelectorAll('textarea, input[type="text"], input:not([type]), [contenteditable="true"], [role="textbox"]'))
+        .filter(el => !el.closest(`#${ROOT_ID}`));
+      for (const input of inputs) {
+        const r = safeRect(input);
+        if (r && r.width > 60) {
+          return { input, context: container, composeRoot: findComposeRoot(container), score: 10 };
+        }
+      }
+      // Widen search one more level
+      const wider = container.parentElement;
+      if (wider) {
+        const widerInputs = Array.from(wider.querySelectorAll('textarea, input[type="text"], input:not([type]), [contenteditable="true"], [role="textbox"]'))
+          .filter(el => !el.closest(`#${ROOT_ID}`));
+        for (const input of widerInputs) {
+          const r = safeRect(input);
+          if (r && r.width > 60) {
+            return { input, context: wider, composeRoot: findComposeRoot(wider), score: 10 };
+          }
+        }
+      }
+    }
+    return null;
   }
 
   function buildCandidate(input) {
@@ -651,10 +706,13 @@
   function render() {
     if (!state.root || !state.activeInput || state.hiddenInput === state.activeInput) return;
     const text = getInputValue(state.activeInput).trim();
+    state.root.dataset.mode = state.store.settings.mode;
     if (!text) {
+      // Show default state as soon as the Gemini bar is open (no text yet)
+      const composeContext = extractComposeContext(state.activeComposeRoot);
+      const defaultAnalysis = analyzePrompt('write an email', composeContext);
       state.currentAnalysis = null;
-      state.root.dataset.mode = state.store.settings.mode;
-      state.root.innerHTML = '';
+      state.root.innerHTML = buildMarkup(defaultAnalysis);
       positionOverlay();
       return;
     }
@@ -670,7 +728,6 @@
       state.promptSession.lastScore = analysis.score;
       state.promptSession.lastMissingCount = analysis.missingItems.length;
     }
-    state.root.dataset.mode = state.store.settings.mode;
     state.root.innerHTML = buildMarkup(analysis);
     positionOverlay();
   }
