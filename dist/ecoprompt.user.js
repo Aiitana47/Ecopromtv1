@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EcoPrompt for Gmail
 // @namespace    https://ecoprompt.local
-// @version      1.0.0
+// @version      1.0.1
 // @description  Energy-aware prompt coaching for Gemini inside Gmail
 // @author       OpenAI
 // @match        https://mail.google.com/*
@@ -416,10 +416,10 @@
 
     if (!state.activeContext || !state.activeContext.contains(target)) return;
     const label = normalizeText(target.textContent || '');
-    if (/(^|\s)(create|generate|insert)(\s|$)/.test(label)) {
+    if (/(^|\s)(create|generate|insert|crear|generar|insertar)(\s|$)/.test(label)) {
       finalizePromptSession(true);
     }
-    if (/(^|\s)(cancel|close)(\s|$)/.test(label)) {
+    if (/(^|\s)(cancel|close|cancelar|cerrar)(\s|$)/.test(label)) {
       finalizePromptSession(false);
       clearActive();
     }
@@ -536,7 +536,7 @@
     }
     let score = bestScore;
     const placeholder = normalizeText(input.getAttribute?.('placeholder') || input.getAttribute?.('aria-label') || input.getAttribute?.('title') || '');
-    if (/gemini|prompt|write|email|draft/.test(placeholder)) score += 2;
+    if (/gemini|prompt|write|email|draft|pregunta|correo|redactar|escribir|borrador/.test(placeholder)) score += 2;
     if (document.activeElement === input || input.contains?.(document.activeElement)) score += 2;
     if (rect.bottom > (window.innerHeight - 260)) score += 1;
     if (rect.height < 80) score += 1;
@@ -550,9 +550,9 @@
     const sample = normalizeText(sampleVisibleText(node));
     let score = 0;
     if (/gemini/.test(sample)) score += 4;
-    if (/help me write|help me draft/.test(sample)) score += 4;
-    if (/(create|generate|insert)/.test(sample)) score += 2;
-    if (/(cancel|close)/.test(sample)) score += 1;
+    if (/help me write|help me draft|ask gemini|pregunta a gemini|ayudame a escribir|ayúdame a escribir|redactar/.test(sample)) score += 4;
+    if (/(create|generate|insert|crear|generar|insertar)/.test(sample)) score += 2;
+    if (/(cancel|close|cancelar|cerrar)/.test(sample)) score += 1;
     if (node.querySelector('button, [role="button"]')) score += 1;
     if (node.querySelector('textarea, [contenteditable="true"], [role="textbox"]')) score += 1;
     return score;
@@ -650,7 +650,7 @@
 
   function extractComposeContext(composeRoot) {
     const root = composeRoot || document;
-    const toSelectors = ['input[aria-label^="To"]', 'input[aria-label*="To "]', 'input[peoplekit-id]', 'span[email]', '[data-hovercard-id]'];
+    const toSelectors = ['input[aria-label^="To"]', 'input[aria-label*="To "]', 'input[aria-label^="Para"]', 'input[aria-label*="Destinat"]', 'input[peoplekit-id]', 'span[email]', '[data-hovercard-id]'];
     const recipients = new Set();
     toSelectors.forEach((selector) => {
       root.querySelectorAll(selector).forEach((el) => {
@@ -658,7 +658,7 @@
         if (value) recipients.add(value);
       });
     });
-    const subjectEl = root.querySelector('input[name="subjectbox"], textarea[name="subjectbox"], input[placeholder*="Subject"], input[aria-label*="Subject"]');
+    const subjectEl = root.querySelector('input[name="subjectbox"], textarea[name="subjectbox"], input[placeholder*="Subject"], input[aria-label*="Subject"], input[placeholder*="Asunto"], input[aria-label*="Asunto"]');
     return { to: Array.from(recipients).join(', '), subject: subjectEl ? getInputValue(subjectEl).trim() : '' };
   }
 
