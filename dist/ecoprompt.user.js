@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         EcoPrompt for Gmail
 // @namespace    https://ecoprompt.local
-// @version      1.2.0
+// @version      2.0.0
 // @description  Energy-aware prompt coaching for Gemini inside Gmail
-// @author       OpenAI
+// @author       EcoPrompt
 // @match        https://mail.google.com/*
 // @run-at       document-idle
 // @grant        GM_getValue
@@ -15,1043 +15,776 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'ecoprompt_state_v1';
-  const ROOT_ID = 'ecoprompt-root';
-  const STYLE_ID = 'ecoprompt-style';
-  const HOST_CLASS = 'ecoprompt-host';
-  const ENERGY_PER_AVOIDED_PROMPT_KWH = 0.001;
-  const LIGHTBULB_WATTS = 10;
-  const TV_WATTS = 100;
-  const MICROWAVE_WATTS = 1000;
+  /* ─── Constants ─────────────────────────────────────────── */
+  const ROOT_ID   = 'ecoprompt-root';
+  const STORE_KEY = 'ecoprompt_v2';
+  const KWH_PER_AVOIDED = 0.001;
 
   const TYPE_DEFS = {
     meeting: {
       keywords: ['meeting', 'schedule', 'call', 'appointment', 'sync', 'catch up', 'meet', 'calendar'],
-      items: ['tone', 'recipient', 'goal', 'when', 'length'],
-      insightKey: 'meetingInsight'
+      checks: ['Tone?', 'Recipient', 'Goal', 'When?', 'Length?']
     },
     followup: {
-      keywords: ['follow up', 'following up', "haven't heard", 'waiting', 'reminder', 'check in', 'update', 'status'],
-      items: ['tone', 'context', 'urgency', 'goal', 'length'],
-      insightKey: 'followupInsight'
+      keywords: ['follow up', 'following up', "haven't heard", 'reminder', 'check in', 'update', 'status'],
+      checks: ['Tone?', 'Context?', 'Urgency?', 'Goal', 'Length?']
     },
     apology: {
-      keywords: ['sorry', 'apologise', 'apologize', 'my fault', 'mistake', 'error', 'issue'],
-      items: ['tone', 'incident', 'resolution', 'goal', 'length'],
-      insightKey: 'apologyInsight'
+      keywords: ['sorry', 'apologize', 'apologise', 'my fault', 'mistake', 'error'],
+      checks: ['Tone?', 'Incident?', 'Resolution?', 'Goal', 'Length?']
     },
     announcement: {
-      keywords: ['announce', 'announcement', 'share', 'inform', 'launch', 'rollout', 'introduce'],
-      items: ['audience', 'tone', 'goal', 'cta', 'length'],
-      insightKey: 'announcementInsight'
+      keywords: ['announce', 'announcement', 'inform', 'launch', 'introduce', 'share'],
+      checks: ['Audience?', 'Tone?', 'Goal', 'Call to action?', 'Length?']
     },
     general: {
       keywords: [],
-      items: ['tone', 'recipient', 'goal', 'length', 'context'],
-      insightKey: 'generalInsight'
+      checks: ['Tone?', 'Recipient', 'Goal', 'Length?', 'Context?']
     }
   };
 
-  const STRINGS = {
-    brand: 'EcoPrompt',
-    tipTitle: 'prompt efficiency tip',
-    sessionStats: 'session stats',
-    promptQuality: 'Prompt quality',
-    needsWork: 'needs work',
-    decent: 'decent',
-    strong: 'strong',
-    excellent: 'excellent',
-    addingDetails: 'Adding these details avoids follow-up prompts and saves energy:',
-    thisSaves: 'This saves:',
-    promptsAvoided: 'prompts avoided',
-    kWhSaved: 'kWh saved',
-    improve: 'Improve my prompt',
-    dismiss: 'Dismiss',
-    tone: 'Tone?',
-    toneHint: 'formal / friendly / urgent',
-    recipient: 'Recipient',
-    recipientHint: 'who is this for?',
-    goal: 'Goal',
-    goalHint: 'what outcome do you want?',
-    when: 'When?',
-    whenHint: 'preferred date / time slot',
-    length: 'Length?',
-    lengthHint: 'short / medium / detailed',
-    urgency: 'Urgency?',
-    urgencyHint: 'ASAP / deadline / optional',
-    context: 'Context?',
-    contextHint: 'previous email / background',
-    incident: 'Incident?',
-    incidentHint: 'what happened exactly?',
-    resolution: 'Resolution?',
-    resolutionHint: 'how will you fix it?',
-    audience: 'Audience?',
-    audienceHint: 'team / clients / everyone',
-    cta: 'Call to action?',
-    ctaHint: 'reply / confirm / register',
-    detected: 'detected',
-    eachAvoided: 'Each avoided follow-up ≈ LED bulb on for {{minutes}} extra min',
-    thisWeek: 'Prompt efficiency — this week',
-    today: 'Today',
-    todaysSessionLabel: 'Today\'s Session',
-    type_meeting: 'Meeting request',
-    type_followup: 'Follow-up',
-    type_apology: 'Apology',
-    type_announcement: 'Announcement',
-    type_general: 'General email',
-    emailDetected: 'EMAIL DETECTED',
-    setMini: 'Switch to mini mode',
-    setSmall: 'Switch to compact mode',
-    setLarge: 'Switch to expanded mode',
-    hide: 'Hide',
-    improvedToast: 'Prompt improved',
-    resetStats: 'Reset EcoPrompt stats',
-    toggleMode: 'Cycle EcoPrompt mode',
-    statsResetDone: 'EcoPrompt stats reset',
-    meetingInsight: 'Specifying tone + a time slot in meeting request emails usually reduces follow-ups.',
-    followupInsight: 'Adding the original thread context + deadline often avoids another clarification round.',
-    apologyInsight: 'A clear incident + solution usually makes the first draft usable in one go.',
-    announcementInsight: 'Naming the audience + call to action usually reduces edits and re-prompts.',
-    generalInsight: 'Adding tone, recipient and desired length often avoids follow-up prompts.',
-    equivalentTitle: 'That\'s equivalent to',
-    equivalentWaterGlass: 'A half full glass of water',
-    equivalentTapRunning: 'Leaving the tap running {{time}}',
-    equivalentLightbulb: 'Lightbulb on for {{time}}',
-    equivalentTv: 'TV running for ~{{time}}',
-    equivalentMicrowave: 'Microwave for ~{{time}}',
-    qualityBadge: '{{score}}% — {{label}}',
-    todaysSession: 'Today, {{date}}',
-    energyEstimateNote: 'Estimated savings based on avoided follow-up prompts.',
-    promptImprovedSuffixMeetingTone: 'Use a formal and professional tone.',
-    promptImprovedSuffixMeetingWhen: 'Include 2 possible time slots for next week.',
-    promptImprovedSuffixMeetingLength: 'Keep it concise in one short paragraph.',
-    promptImprovedSuffixMeetingRecipient: 'Make clear who the email is for.',
-    promptImprovedSuffixMeetingGoal: 'State clearly that you are requesting a meeting about the project update.',
-    promptImprovedSuffixFollowupTone: 'Keep the tone polite and professional.',
-    promptImprovedSuffixFollowupContext: 'Mention the previous email or thread you are following up on.',
-    promptImprovedSuffixFollowupUrgency: 'Add when you need a reply or update.',
-    promptImprovedSuffixFollowupLength: 'Keep it short and direct.',
-    promptImprovedSuffixFollowupGoal: 'State the exact update or action you need.',
-    promptImprovedSuffixApologyTone: 'Use an empathetic and accountable tone.',
-    promptImprovedSuffixApologyIncident: 'Briefly explain what happened.',
-    promptImprovedSuffixApologyResolution: 'Explain the fix or resolution you are offering.',
-    promptImprovedSuffixApologyLength: 'Keep it sincere and concise.',
-    promptImprovedSuffixApologyGoal: 'State the next step you want to agree on.',
-    promptImprovedSuffixAnnouncementAudience: 'Specify who the announcement is for.',
-    promptImprovedSuffixAnnouncementTone: 'Keep the tone clear and professional.',
-    promptImprovedSuffixAnnouncementGoal: 'State the key message you want to communicate.',
-    promptImprovedSuffixAnnouncementCta: 'Include the action you want recipients to take.',
-    promptImprovedSuffixAnnouncementLength: 'Keep it easy to scan.',
-    promptImprovedSuffixGeneralTone: 'Use the right tone for the recipient.',
-    promptImprovedSuffixGeneralRecipient: 'Specify who should receive the email.',
-    promptImprovedSuffixGeneralGoal: 'State the exact outcome you want.',
-    promptImprovedSuffixGeneralLength: 'Mention whether the email should be short or detailed.',
-    promptImprovedSuffixGeneralContext: 'Add any background context Gemini should include.',
-    toastSaved: '+{{count}} avoided follow-up prompt(s) estimated'
+  const HINTS = {
+    'Tone?':          'formal / friendly / urgent',
+    'Recipient':      'who is this for?',
+    'Goal':           'what outcome do you want?',
+    'When?':          'preferred date / time slot',
+    'Length?':        'short / medium / detailed',
+    'Urgency?':       'ASAP / deadline / optional',
+    'Context?':       'previous email / background',
+    'Incident?':      'what happened exactly?',
+    'Resolution?':    'how will you fix it?',
+    'Audience?':      'team / clients / everyone',
+    'Call to action?':'reply / confirm / register'
   };
 
+  const SIGNAL_TESTS = {
+    'Tone?':          /formal|friendly|urgent|professional|polite|warm|casual|tone/,
+    'Recipient':      /to my|to the|for my|for the|boss|manager|director|team|client|customer|supplier|professor|teacher/,
+    'Goal':           /write|draft|compose|send|reply|ask|request|email|message/,
+    'When?':          /today|tomorrow|next week|monday|tuesday|wednesday|thursday|friday|morning|afternoon|evening|asap|this week/,
+    'Length?':        /short|brief|concise|one paragraph|two paragraphs|detailed|bullet|medium|long/,
+    'Urgency?':       /urgent|asap|soon|deadline|before eod|by tomorrow|time-sensitive|priority/,
+    'Context?':       /following up|follow up|last email|previous email|waiting|regarding|about the|after our conversation/,
+    'Incident?':      /because|after|mistake|error|issue|delay|wrong|forgot|problem|missed|failed/,
+    'Resolution?':    /fix|refund|replace|correct|reschedule|resolve|clarify|provide|i will/,
+    'Audience?':      /team|everyone|all staff|company|department|clients|customers|users|stakeholders/,
+    'Call to action?':/reply|confirm|join|register|review|let me know|action required|approve|respond/
+  };
+
+  const INSIGHTS = {
+    meeting:      'Specifying tone + time slot in meeting request emails reduces follow-ups by ~65%.',
+    followup:     'Adding the original thread context + deadline often avoids another clarification round.',
+    apology:      'A clear incident + solution usually makes the first draft usable in one go.',
+    announcement: 'Naming the audience + call to action usually reduces edits and re-prompts.',
+    general:      'Adding tone, recipient and desired length often avoids follow-up prompts.'
+  };
+
+  /* ─── State ──────────────────────────────────────────────── */
   const state = {
-    lang: pickLanguage(),
-    store: normalizeStore(loadStore()),
+    store:      loadStore(),
     activeInput: null,
-    activeContext: null,
     activeComposeRoot: null,
-    currentAnalysis: null,
-    root: null,
-    promptSession: null,
-    hiddenInput: null,
-    activeInputId: null,
-    scanTimer: null
+    dismissed:  false,
+    lastInputId: null,
+    root:       null
   };
 
-  function pickLanguage() {
-    return 'en';
-  }
-
-  function t(key, vars) {
-    let value = STRINGS[key] || key;
-    if (vars) {
-      Object.entries(vars).forEach(([name, replacement]) => {
-        value = value.replace(new RegExp(`{{${name}}}`, 'g'), String(replacement));
-      });
-    }
-    return value;
-  }
-
-  function normalizeStore(raw) {
-    const store = raw && typeof raw === 'object' ? raw : {};
-    const settings = store.settings && typeof store.settings === 'object' ? store.settings : {};
-    const stats = store.stats && typeof store.stats === 'object' ? store.stats : {};
-    return {
-      settings: {
-        mode: ['mini', 'small', 'large'].includes(settings.mode) ? settings.mode : 'mini'
-      },
-      stats: {
-        promptsAvoided: numberOrZero(stats.promptsAvoided),
-        totalSessions: numberOrZero(stats.totalSessions),
-        kWhSaved: numberOrZero(stats.kWhSaved),
-        improvementsApplied: numberOrZero(stats.improvementsApplied),
-        history: stats.history && typeof stats.history === 'object' ? stats.history : {}
-      }
-    };
-  }
-
-  function numberOrZero(value) {
-    return Number.isFinite(Number(value)) ? Number(value) : 0;
-  }
-
+  /* ─── Storage ────────────────────────────────────────────── */
   function loadStore() {
     try {
-      if (typeof GM_getValue === 'function') {
-        return JSON.parse(GM_getValue(STORAGE_KEY, '{}'));
-      }
-    } catch (_) {}
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      const raw = typeof GM_getValue === 'function'
+        ? GM_getValue(STORE_KEY, '{}')
+        : (localStorage.getItem(STORE_KEY) || '{}');
+      const parsed = JSON.parse(raw);
+      return {
+        mode:           ['mini','small','large'].includes(parsed.mode) ? parsed.mode : 'mini',
+        promptsAvoided: parsed.promptsAvoided || 0,
+        kWhSaved:       parsed.kWhSaved || 0,
+        history:        parsed.history || {},
+        improvementsApplied: parsed.improvementsApplied || 0
+      };
     } catch (_) {
-      return {};
+      return { mode: 'mini', promptsAvoided: 0, kWhSaved: 0, history: {}, improvementsApplied: 0 };
     }
   }
 
   function saveStore() {
     const payload = JSON.stringify(state.store);
     try {
-      if (typeof GM_setValue === 'function') {
-        GM_setValue(STORAGE_KEY, payload);
-      } else {
-        localStorage.setItem(STORAGE_KEY, payload);
-      }
-    } catch (error) {
-      console.warn('[EcoPrompt] Could not save state', error);
-    }
-  }
-
-  function setMode(mode) {
-    if (!['mini', 'small', 'large'].includes(mode)) return;
-    state.store.settings.mode = mode;
-    saveStore();
-    render();
-  }
-
-  function cycleMode() {
-    const order = ['mini', 'small', 'large'];
-    const current = state.store.settings.mode;
-    const next = order[(order.indexOf(current) + 1) % order.length];
-    setMode(next);
-  }
-
-  function resetStats() {
-    state.store.stats = {
-      promptsAvoided: 0,
-      totalSessions: 0,
-      kWhSaved: 0,
-      improvementsApplied: 0,
-      history: {}
-    };
-    saveStore();
-    render();
-    showToast(t('statsResetDone'));
-  }
-
-  function registerMenuCommands() {
-    if (typeof GM_registerMenuCommand !== 'function') return;
-    try {
-      GM_registerMenuCommand(t('toggleMode'), cycleMode);
-      GM_registerMenuCommand(t('resetStats'), resetStats);
+      if (typeof GM_setValue === 'function') GM_setValue(STORE_KEY, payload);
+      else localStorage.setItem(STORE_KEY, payload);
     } catch (_) {}
   }
 
+  /* ─── Styles ─────────────────────────────────────────────── */
   function injectStyles() {
-    if (document.getElementById(STYLE_ID)) return;
     const css = `
       #${ROOT_ID} {
-        --ecp-brand: #f2a41a;
-        --ecp-advisor-bg: #f4f0dd;
-        --ecp-primary: #1a73e8;
-        --ecp-dark-bg: linear-gradient(180deg, #252442 0%, #17162a 100%);
-        position: fixed;
-        z-index: 2147483000;
-        pointer-events: none;
-        font-family: Inter, Arial, Helvetica, sans-serif;
-        line-height: 1.25;
-        max-height: calc(100vh - 80px);
-        overflow-y: auto;
+        position: fixed !important;
+        z-index: 2147483647 !important;
+        font-family: 'Google Sans', Inter, Arial, sans-serif !important;
+        line-height: 1.4 !important;
+        pointer-events: none !important;
+        box-sizing: border-box !important;
       }
-      #${ROOT_ID} * { box-sizing: border-box; }
-      .ecp-layout, .ecp-card, .ecp-button, .ecp-icon-button { pointer-events: auto; }
-      .ecp-layout { display: flex; gap: 14px; align-items: stretch; }
-      #${ROOT_ID}[data-mode="mini"] .ecp-layout { display: block; }
-      #${ROOT_ID}[data-mode="small"] .ecp-layout { justify-content: flex-end; }
-      .ecp-card { border-radius: 18px; box-shadow: 0 14px 35px rgba(0, 0, 0, 0.18); overflow: hidden; backdrop-filter: blur(4px); }
-      .ecp-card--advisor { background: var(--ecp-advisor-bg); border: 2px solid var(--ecp-brand); color: #3d3d3d; }
-      .ecp-card--stats { background: var(--ecp-dark-bg); border: 1px solid rgba(159, 130, 255, 0.28); color: #e9e8ff; }
-      .ecp-advisor-header { background: var(--ecp-brand); color: white; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-      .ecp-advisor-title, .ecp-stats-title { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
-      .ecp-subtitle { opacity: 0.92; font-size: 13px; }
-      .ecp-controls { display: flex; gap: 6px; flex-wrap: wrap; }
-      .ecp-icon-button { border: 1px solid rgba(255,255,255,0.24); color: white; background: rgba(255,255,255,0.12); border-radius: 8px; width: 28px; height: 28px; display: grid; place-items: center; cursor: pointer; font-size: 13px; }
-      .ecp-advisor-body { padding: 14px 16px 14px; }
-      .ecp-quality-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-      .ecp-quality-label { min-width: 110px; color: #6e6e6e; font-size: 14px; }
-      .ecp-quality-bar { position: relative; flex: 1 1 220px; height: 12px; background: rgba(0,0,0,0.10); border-radius: 999px; overflow: hidden; }
-      .ecp-quality-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: linear-gradient(90deg, #ff6b57 0%, #ffb627 40%, #49d67d 75%, #7f8cff 100%); }
-      .ecp-quality-score { font-size: 14px; font-weight: 700; color: #f36d00; }
-      .ecp-helper { color: #606060; font-size: 13px; margin-bottom: 10px; }
-      .ecp-list { display: grid; gap: 8px; }
-      .ecp-item { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 8px; align-items: start; }
-      .ecp-check { width: 22px; height: 22px; border-radius: 6px; border: 2px solid rgba(0,0,0,0.22); display: grid; place-items: center; font-weight: 700; font-size: 14px; color: transparent; background: rgba(255,255,255,0.6); }
-      .ecp-item--detected .ecp-check { background: rgba(73,214,125,0.18); border-color: #3bbf63; color: #2e8d4d; }
-      .ecp-item-title { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-weight: 700; font-size: 15px; }
-      .ecp-item-title span:last-child { color: #8a8a8a; font-weight: 500; font-size: 14px; }
-      .ecp-item--detected .ecp-item-title span:last-child { color: #5d8f62; }
-      .ecp-divider { border-top: 1px solid rgba(0,0,0,0.08); margin: 12px -16px 0; }
-      .ecp-footer-note { padding: 10px 16px 0; color: #4b8b49; font-size: 13px; }
-      .ecp-actions { display: flex; gap: 10px; padding: 12px 16px 16px; }
-      .ecp-button { border: none; border-radius: 9px; padding: 10px 14px; font-size: 14px; cursor: pointer; }
-      .ecp-button--primary { background: var(--ecp-primary); color: white; }
-      .ecp-button--secondary { background: rgba(0,0,0,0.08); color: #555; }
-      .ecp-stats { min-width: 300px; width: 100%; }
-      .ecp-stats-header { padding: 18px 20px 8px; border-bottom: 1px solid rgba(255,255,255,0.07); }
-      .ecp-stats-header .ecp-subtitle { color: rgba(233,232,255,0.68); display: block; margin-top: 6px; }
-      .ecp-stats-body { padding: 14px 20px 20px; }
-      .ecp-metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
-      .ecp-metric { border-radius: 12px; background: rgba(255,255,255,0.06); padding: 14px 14px 10px; text-align: center; }
-      .ecp-metric-value { font-size: 22px; font-weight: 800; color: #58f394; margin-bottom: 4px; }
-      .ecp-metric-label { font-size: 13px; color: rgba(233,232,255,0.72); }
-      .ecp-week-title { font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase; color: rgba(233,232,255,0.58); margin: 6px 0 8px; }
-      .ecp-week-bars { display: grid; gap: 8px; margin-bottom: 16px; }
-      .ecp-week-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) 44px; gap: 10px; align-items: center; color: rgba(233,232,255,0.88); font-size: 14px; }
-      .ecp-week-track { position: relative; height: 9px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; }
-      .ecp-week-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: linear-gradient(90deg, #ff7f7f 0%, #ffb04d 30%, #b8de22 58%, #49d67d 78%, #9f82ff 100%); }
-      .ecp-equivalents, .ecp-callout { border-radius: 14px; padding: 12px 16px; margin-top: 12px; }
-      .ecp-equivalents { background: rgba(39,113,255,0.18); border: 1px solid rgba(83,152,255,0.28); }
-      .ecp-callout { background: linear-gradient(180deg, rgba(20,65,18,0.72), rgba(20,48,18,0.92)); border: 1px solid rgba(98,226,123,0.25); }
-      .ecp-callout.ecp-callout--insight { background: linear-gradient(180deg, rgba(82,55,8,0.55), rgba(48,31,10,0.95)); border-color: rgba(255,182,39,0.25); }
-      .ecp-section-heading { font-size: 12px; text-transform: uppercase; letter-spacing: 0.02em; color: rgba(233,232,255,0.62); margin-bottom: 8px; }
-      .ecp-equivalents ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-      .ecp-mini-columns { display: grid; grid-template-columns: 1.45fr 1fr; }
-      .ecp-mini-main, .ecp-mini-side { padding: 12px 14px 14px; }
-      .ecp-mini-side { border-left: 1px solid rgba(0,0,0,0.12); background: rgba(255,255,255,0.15); }
-      .ecp-mini-side ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13px; color: #2a2a2a; }
-      .ecp-mini-actions { padding: 0 14px 14px; }
-      .ecp-card--small-advisor { flex: 1 1 58%; max-width: 720px; }
-      .ecp-card--small-stats { flex: 0 0 34%; min-width: 270px; max-width: 430px; }
-      .ecp-card--large-advisor { flex: 1 1 62%; min-width: 420px; }
-      .ecp-card--large-stats { flex: 0 0 430px; max-width: 430px; }
-      .ecp-toast { position: fixed; right: 18px; bottom: 18px; z-index: 2147483647; background: rgba(28,32,53,0.95); border: 1px solid rgba(159,130,255,0.35); color: white; padding: 10px 14px; border-radius: 12px; box-shadow: 0 14px 35px rgba(0,0,0,0.2); font-family: Inter, Arial, sans-serif; }
-      @media (max-width: 1240px) { #${ROOT_ID}[data-mode="large"] .ecp-layout { flex-direction: column; } .ecp-card--large-stats { max-width: none; width: 100%; flex-basis: auto; } }
-      @media (max-width: 1024px) { #${ROOT_ID}[data-mode="small"] .ecp-layout { flex-direction: column; align-items: stretch; } .ecp-card--small-stats, .ecp-card--small-advisor, .ecp-card--large-advisor { max-width: none; min-width: 0; width: 100%; flex-basis: auto; } }
-      @media (max-width: 640px) { #${ROOT_ID}[data-mode="mini"] { width: calc(100% - 24px); right: 12px; bottom: 12px; } .ecp-mini-columns, .ecp-metric-grid { grid-template-columns: 1fr; } .ecp-actions { flex-wrap: wrap; } }
+      #${ROOT_ID} * { box-sizing: border-box !important; font-family: inherit !important; }
+      #${ROOT_ID} .ecp-wrap { pointer-events: auto; display: flex; gap: 12px; align-items: flex-end; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-wrap { display: block; }
+
+      /* Advisor card */
+      #${ROOT_ID} .ecp-advisor {
+        background: #fdf4e0;
+        border: 2px solid #f2a41a;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 8px 32px rgba(0,0,0,.18);
+        min-width: 280px;
+      }
+      #${ROOT_ID}[data-mode="large"] .ecp-advisor { flex: 1 1 60%; }
+      #${ROOT_ID}[data-mode="small"] .ecp-advisor { flex: 1 1 55%; }
+
+      #${ROOT_ID} .ecp-head {
+        background: #f2a41a;
+        color: #fff;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      #${ROOT_ID} .ecp-head-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+      #${ROOT_ID} .ecp-head-btns { display: flex; gap: 5px; }
+      #${ROOT_ID} .ecp-icn {
+        width: 26px; height: 26px; border-radius: 7px; border: 1px solid rgba(255,255,255,.35);
+        background: rgba(255,255,255,.15); color: #fff; font-size: 13px; cursor: pointer;
+        display: grid; place-items: center; line-height: 1;
+      }
+      #${ROOT_ID} .ecp-icn:hover { background: rgba(255,255,255,.3); }
+
+      #${ROOT_ID} .ecp-body { padding: 12px 14px 4px; }
+      #${ROOT_ID} .ecp-quality-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+      #${ROOT_ID} .ecp-qlabel { font-size: 13px; color: #666; min-width: 95px; }
+      #${ROOT_ID} .ecp-qbar  { flex: 1; height: 10px; background: rgba(0,0,0,.1); border-radius: 99px; overflow: hidden; }
+      #${ROOT_ID} .ecp-qfill { height: 100%; border-radius: 99px; background: linear-gradient(90deg,#ff6b57,#ffb627 40%,#49d67d 72%,#7f8cff 100%); }
+      #${ROOT_ID} .ecp-qscore { font-size: 13px; font-weight: 700; color: #e06000; white-space: nowrap; }
+
+      #${ROOT_ID} .ecp-hint  { font-size: 12px; color: #555; margin-bottom: 8px; }
+      #${ROOT_ID} .ecp-list  { display: grid; gap: 7px; margin-bottom: 8px; }
+      #${ROOT_ID} .ecp-item  { display: flex; align-items: center; gap: 8px; }
+      #${ROOT_ID} .ecp-chk   {
+        width: 20px; height: 20px; border-radius: 5px; border: 2px solid rgba(0,0,0,.2);
+        background: rgba(255,255,255,.6); display: grid; place-items: center; font-size: 12px;
+        color: transparent; flex-shrink: 0;
+      }
+      #${ROOT_ID} .ecp-item.ok .ecp-chk { background: rgba(73,214,125,.2); border-color: #3bbf63; color: #2e8d4d; }
+      #${ROOT_ID} .ecp-iname { font-weight: 600; font-size: 13px; color: #333; }
+      #${ROOT_ID} .ecp-iname span { font-weight: 400; color: #888; margin-left: 5px; }
+      #${ROOT_ID} .ecp-item.ok .ecp-iname span { color: #5d8f62; }
+
+      #${ROOT_ID} .ecp-divider { border-top: 1px solid rgba(0,0,0,.08); margin: 4px -14px; }
+      #${ROOT_ID} .ecp-foot { padding: 6px 14px 4px; font-size: 12px; color: #4b8b49; }
+      #${ROOT_ID} .ecp-actions { display: flex; gap: 8px; padding: 8px 14px 12px; }
+      #${ROOT_ID} .ecp-btn {
+        border: none; border-radius: 8px; padding: 8px 14px; font-size: 13px;
+        font-weight: 600; cursor: pointer;
+      }
+      #${ROOT_ID} .ecp-btn-primary { background: #1a73e8; color: #fff; }
+      #${ROOT_ID} .ecp-btn-primary:hover { background: #1558b0; }
+      #${ROOT_ID} .ecp-btn-secondary { background: rgba(0,0,0,.08); color: #444; }
+      #${ROOT_ID} .ecp-btn-secondary:hover { background: rgba(0,0,0,.14); }
+
+      /* Mini two-column layout */
+      #${ROOT_ID}[data-mode="mini"] .ecp-cols { display: grid; grid-template-columns: 1.4fr 1fr; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-col-main { padding: 10px 12px 6px; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-col-side {
+        padding: 10px 12px 6px;
+        border-left: 1px solid rgba(0,0,0,.1);
+        background: rgba(255,255,255,.2);
+      }
+      #${ROOT_ID}[data-mode="mini"] .ecp-col-side-title { font-size: 11px; font-weight: 700; color: #555; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-col-side ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 12px; color: #333; }
+      #${ROOT_ID}[data-mode="mini"] .ecp-mini-actions { padding: 0 12px 10px; }
+
+      /* Stats card */
+      #${ROOT_ID} .ecp-stats {
+        background: linear-gradient(180deg,#252442,#17162a);
+        border: 1px solid rgba(159,130,255,.28);
+        border-radius: 16px;
+        color: #e9e8ff;
+        overflow: hidden;
+        box-shadow: 0 8px 32px rgba(0,0,0,.22);
+        min-width: 260px;
+      }
+      #${ROOT_ID}[data-mode="large"] .ecp-stats { flex: 0 0 400px; }
+      #${ROOT_ID}[data-mode="small"] .ecp-stats { flex: 0 0 300px; }
+
+      #${ROOT_ID} .ecp-stats-head { padding: 14px 16px 8px; border-bottom: 1px solid rgba(255,255,255,.07); }
+      #${ROOT_ID} .ecp-stats-title { font-weight: 700; font-size: 14px; }
+      #${ROOT_ID} .ecp-stats-sub   { font-size: 12px; opacity: .65; margin-top: 3px; }
+      #${ROOT_ID} .ecp-stats-body  { padding: 12px 16px 16px; }
+
+      #${ROOT_ID} .ecp-section { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: rgba(233,232,255,.55); margin-bottom: 8px; }
+      #${ROOT_ID} .ecp-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+      #${ROOT_ID} .ecp-metric { background: rgba(255,255,255,.06); border-radius: 10px; padding: 10px; text-align: center; }
+      #${ROOT_ID} .ecp-metric-val { font-size: 22px; font-weight: 800; color: #58f394; }
+      #${ROOT_ID} .ecp-metric-lbl { font-size: 12px; color: rgba(233,232,255,.65); margin-top: 2px; }
+
+      #${ROOT_ID} .ecp-week { display: grid; gap: 6px; margin-bottom: 12px; }
+      #${ROOT_ID} .ecp-week-row { display: grid; grid-template-columns: 32px 1fr 38px; gap: 8px; align-items: center; font-size: 13px; }
+      #${ROOT_ID} .ecp-week-track { height: 8px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+      #${ROOT_ID} .ecp-week-fill  { height: 100%; border-radius: 99px; background: linear-gradient(90deg,#ff7f7f,#ffb04d 30%,#b8de22 58%,#49d67d 78%,#9f82ff 100%); }
+
+      #${ROOT_ID} .ecp-equiv {
+        background: rgba(39,113,255,.18);
+        border: 1px solid rgba(83,152,255,.28);
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+      }
+      #${ROOT_ID} .ecp-equiv ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 13px; }
+      #${ROOT_ID} .ecp-callout {
+        background: linear-gradient(180deg,rgba(20,65,18,.72),rgba(20,48,18,.92));
+        border: 1px solid rgba(98,226,123,.25);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 13px;
+        color: #9bf0ab;
+      }
+      #${ROOT_ID} .ecp-callout-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: rgba(233,232,255,.55); margin-bottom: 5px; }
+
+      /* Toast */
+      .ecp-toast {
+        position: fixed !important; bottom: 20px !important; right: 20px !important;
+        z-index: 2147483647 !important; background: rgba(28,32,53,.95) !important;
+        border: 1px solid rgba(159,130,255,.35) !important; color: #fff !important;
+        padding: 10px 14px !important; border-radius: 10px !important;
+        font-family: 'Google Sans', Inter, Arial, sans-serif !important; font-size: 13px !important;
+        box-shadow: 0 8px 24px rgba(0,0,0,.25) !important;
+      }
     `;
     if (typeof GM_addStyle === 'function') {
       GM_addStyle(css);
     } else {
-      const style = document.createElement('style');
-      style.id = STYLE_ID;
-      style.textContent = css;
-      document.head.appendChild(style);
+      const el = document.createElement('style');
+      el.textContent = css;
+      document.head.appendChild(el);
     }
   }
 
-  function init() {
-    injectStyles();
-    registerMenuCommands();
-    document.addEventListener('click', handleGlobalClick, true);
-    document.addEventListener('input', handleInput, true);
-    document.addEventListener('focusin', scanForPrompt, true);
-    window.addEventListener('resize', () => { render(); positionOverlay(); });
-    window.addEventListener('scroll', positionOverlay, true);
-    observeDom();
-    scanForPrompt();
-    state.scanTimer = window.setInterval(scanForPrompt, 600);
-  }
+  /* ─── Detection ──────────────────────────────────────────── */
+  function findGeminiBar() {
+    // Find every "Cancel" button on the page
+    const allBtns = Array.from(document.querySelectorAll('button, [role="button"]'));
 
-  function observeDom() {
-    const observer = new MutationObserver(() => {
-      if (state.activeInput && !document.contains(state.activeInput)) {
-        finalizePromptSession(false);
-        clearActive();
-      }
-      scanForPrompt();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
+    for (const cancelBtn of allBtns) {
+      const cancelText = (cancelBtn.textContent || cancelBtn.getAttribute('aria-label') || '').trim().toLowerCase();
+      if (cancelText !== 'cancel') continue;
+      if (!isVisible(cancelBtn)) continue;
 
-  function handleInput(event) {
-    const target = event.target;
-    if (target === state.activeInput) {
-      ensureSession();
-      render();
-      return;
-    }
-    if (isPotentialPromptInput(target)) {
-      scanForPrompt();
-    }
-  }
+      // Walk up and find a node that ALSO contains a "Create" button AND a text input
+      let node = cancelBtn.parentElement;
+      for (let d = 0; d < 12 && node && node !== document.body; d++, node = node.parentElement) {
+        // Check for "Create" button inside this node
+        const btns = Array.from(node.querySelectorAll('button, [role="button"]'));
+        const hasCreate = btns.some(b => (b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase() === 'create');
+        if (!hasCreate) continue;
 
-  function handleGlobalClick(event) {
-    const root = state.root;
-    const target = event.target;
-    if (!(target instanceof Element)) return;
+        // Check for a text input inside this node
+        const inputSel = [
+          'textarea',
+          'input[type="text"]',
+          'input:not([type])',
+          '[contenteditable="true"]',
+          '[role="textbox"]'
+        ].join(',');
+        const inputs = Array.from(node.querySelectorAll(inputSel))
+          .filter(el => !el.closest('#' + ROOT_ID) && isVisible(el));
 
-    const actionTarget = target.closest('[data-ecp-action]');
-    if (actionTarget && root && root.contains(actionTarget)) {
-      const action = actionTarget.getAttribute('data-ecp-action');
-      if (action === 'improve') {
-        event.preventDefault();
-        event.stopPropagation();
-        improvePrompt();
-      } else if (action === 'dismiss') {
-        event.preventDefault();
-        event.stopPropagation();
-        dismissOverlay();
-      } else if (action === 'mode') {
-        event.preventDefault();
-        event.stopPropagation();
-        const nextMode = actionTarget.getAttribute('data-mode');
-        setMode(nextMode);
-      }
-      return;
-    }
-
-    // Trigger immediate scan when clicking the "Help me write" button
-    const clickedText = normalizeText(target.textContent || target.getAttribute('aria-label') || '');
-    if (/help me write|help me draft|ask gemini/.test(clickedText)) {
-      window.setTimeout(scanForPrompt, 120);
-      window.setTimeout(scanForPrompt, 400);
-    }
-
-    if (!state.activeContext || !state.activeContext.contains(target)) return;
-    const label = normalizeText(target.textContent || '');
-    if (/(^|\s)(create|generate|insert)(\s|$)/.test(label)) {
-      finalizePromptSession(true);
-    }
-    if (/(^|\s)(cancel|close)(\s|$)/.test(label)) {
-      finalizePromptSession(false);
-      clearActive();
-    }
-  }
-
-  function dismissOverlay() {
-    state.hiddenInput = state.activeInput;
-    unmountOverlay();
-  }
-
-  function clearActive() {
-    state.activeInput = null;
-    state.activeContext = null;
-    state.activeComposeRoot = null;
-    state.currentAnalysis = null;
-    state.activeInputId = null;
-    state.promptSession = null;
-    unmountOverlay();
-  }
-
-  function ensureSession() {
-    if (!state.activeInput) return;
-    if (state.promptSession && state.promptSession.inputId === state.activeInputId) return;
-    state.promptSession = { inputId: state.activeInputId, startedAt: Date.now(), baselineScore: null, baselineMissingCount: null, lastScore: 0, lastMissingCount: 0, usedImproveButton: false, finalized: false };
-  }
-
-  function finalizePromptSession(shouldCount) {
-    if (!state.promptSession || state.promptSession.finalized) return;
-    state.promptSession.finalized = true;
-    if (!shouldCount || !state.currentAnalysis || state.promptSession.baselineScore == null) return;
-    const delta = state.currentAnalysis.score - state.promptSession.baselineScore;
-    const missingResolved = Math.max(0, (state.promptSession.baselineMissingCount || 0) - state.currentAnalysis.missingItems.length);
-    let avoided = 0;
-    if (delta >= 14) avoided += 1;
-    if (delta >= 32) avoided += 1;
-    if (delta >= 52 || missingResolved >= 3) avoided += 1;
-    if (state.promptSession.usedImproveButton && avoided === 0 && state.currentAnalysis.score >= 68) avoided = 1;
-    avoided = Math.max(0, Math.min(3, avoided));
-    state.store.stats.totalSessions += 1;
-    if (avoided > 0) {
-      state.store.stats.promptsAvoided += avoided;
-      state.store.stats.kWhSaved = round3(state.store.stats.promptsAvoided * ENERGY_PER_AVOIDED_PROMPT_KWH);
-      showToast(t('toastSaved', { count: avoided }));
-    }
-    recordHistory(avoided, state.currentAnalysis.score);
-    saveStore();
-    render();
-  }
-
-  function recordHistory(promptsAvoided, score) {
-    const day = todayKey();
-    const history = state.store.stats.history;
-    const current = history[day] || { sessions: 0, promptsAvoided: 0, totalScore: 0 };
-    current.sessions += 1;
-    current.promptsAvoided += promptsAvoided;
-    current.totalScore += score;
-    history[day] = current;
-  }
-
-  function todayKey(date) {
-    const d = date || new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }
-
-  function scanForPrompt() {
-    const candidate = detectActivePrompt();
-    if (!candidate) {
-      if (state.activeInput && !document.contains(state.activeInput)) {
-        finalizePromptSession(false);
-        clearActive();
-      }
-      return;
-    }
-    if (candidate.input !== state.activeInput) {
-      finalizePromptSession(false);
-      state.activeInput = candidate.input;
-      state.activeContext = candidate.context;
-      state.activeComposeRoot = candidate.composeRoot;
-      state.activeInputId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      state.hiddenInput = null;
-      ensureSession();
-      mountOverlay();
-    } else {
-      state.activeContext = candidate.context;
-      state.activeComposeRoot = candidate.composeRoot;
-      mountOverlay();
-    }
-    render();
-  }
-
-  function detectActivePrompt() {
-    // Primary: Gmail Gemini "Help me write" bar (Cancel + Create pattern)
-    const gmailBar = detectGmailGeminiBar();
-    if (gmailBar) return gmailBar;
-
-    // Fallback: generic scoring
-    const allCandidates = Array.from(document.querySelectorAll('textarea, input[type="text"], [contenteditable="true"], [role="textbox"]'))
-      .filter(isPotentialPromptInput)
-      .map(buildCandidate)
-      .filter(Boolean)
-      .sort((a, b) => b.score - a.score);
-    if (!allCandidates.length) return null;
-    const focused = allCandidates.find((candidate) => candidate.input === document.activeElement || candidate.input.contains?.(document.activeElement));
-    return focused || allCandidates[0];
-  }
-
-  function detectGmailGeminiBar() {
-    // The Gemini "Help me write" bar always has a visible "Cancel" button next to a "Create" button
-    const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
-    for (const btn of buttons) {
-      const btnText = normalizeText(btn.textContent || btn.getAttribute('aria-label') || '');
-      if (btnText !== 'cancel') continue;
-      const btnRect = safeRect(btn);
-      if (!btnRect || btnRect.height === 0) continue;
-
-      // Confirm there is also a "Create" button nearby (same parent or grandparent)
-      let container = btn.parentElement;
-      let found = false;
-      for (let d = 0; d < 5 && container; d++, container = container.parentElement) {
-        const ctxText = normalizeText(sampleVisibleText(container));
-        if (/create/.test(ctxText)) { found = true; break; }
-      }
-      if (!found) continue;
-
-      // Now find the text input inside that container
-      const inputs = Array.from(container.querySelectorAll('textarea, input[type="text"], input:not([type]), [contenteditable="true"], [role="textbox"]'))
-        .filter(el => !el.closest(`#${ROOT_ID}`));
-      for (const input of inputs) {
-        const r = safeRect(input);
-        if (r && r.width > 60) {
-          return { input, context: container, composeRoot: findComposeRoot(container), score: 10 };
+        if (inputs.length > 0) {
+          const input = inputs[0];
+          return { input, container: node };
         }
-      }
-      // Widen search one more level
-      const wider = container.parentElement;
-      if (wider) {
-        const widerInputs = Array.from(wider.querySelectorAll('textarea, input[type="text"], input:not([type]), [contenteditable="true"], [role="textbox"]'))
-          .filter(el => !el.closest(`#${ROOT_ID}`));
-        for (const input of widerInputs) {
-          const r = safeRect(input);
-          if (r && r.width > 60) {
-            return { input, context: wider, composeRoot: findComposeRoot(wider), score: 10 };
-          }
-        }
+        // Has Cancel+Create but no input yet at this level — keep going up
       }
     }
     return null;
   }
 
-  function buildCandidate(input) {
-    const rect = safeRect(input);
-    if (!rect || rect.width < 200 || rect.height > 160) return null;
-    let bestContext = null;
-    let bestScore = 0;
-    let node = input;
-    for (let depth = 0; depth < 14 && node; depth += 1, node = node.parentElement) {
-      const score = scoreContext(node);
-      if (score > bestScore) {
-        bestScore = score;
-        bestContext = node;
-      }
+  function isVisible(el) {
+    if (!(el instanceof Element)) return false;
+    const r = el.getBoundingClientRect();
+    if (!r || r.width === 0 || r.height === 0) return false;
+    const s = getComputedStyle(el);
+    return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+  }
+
+  function getInputValue(el) {
+    if (!el) return '';
+    if ('value' in el) return el.value || '';
+    return el.innerText || el.textContent || '';
+  }
+
+  function setInputValue(el, value) {
+    if ('value' in el) {
+      el.focus();
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      try { el.setSelectionRange(value.length, value.length); } catch (_) {}
+    } else {
+      el.focus();
+      el.textContent = value;
+      el.dispatchEvent(new InputEvent('input', { data: value, inputType: 'insertText', bubbles: true }));
     }
-    let score = bestScore;
-    const placeholder = normalizeText(input.getAttribute?.('placeholder') || input.getAttribute?.('aria-label') || input.getAttribute?.('title') || '');
-    if (/gemini|prompt|write|email|draft/.test(placeholder)) score += 2;
-    const isFocused = document.activeElement === input || input.contains?.(document.activeElement);
-    if (isFocused) score += 2;
-    if (rect.bottom > (window.innerHeight - 260)) score += 1;
-    if (rect.height < 80) score += 1;
-    const minScore = isFocused ? 3 : 4;
-    if (score < minScore || !bestContext) return null;
-    return { input, context: bestContext, composeRoot: findComposeRoot(bestContext), score };
   }
 
-  function scoreContext(node) {
-    if (!(node instanceof Element)) return 0;
-    if (node.id === ROOT_ID || node.closest(`#${ROOT_ID}`)) return -100;
-    const sample = normalizeText(sampleVisibleText(node));
-    let score = 0;
-    if (/gemini/.test(sample)) score += 4;
-    if (/help me write|help me draft|ask gemini/.test(sample)) score += 4;
-    if (/(create|generate|insert)/.test(sample)) score += 2;
-    if (/(cancel|close)/.test(sample)) score += 1;
-    if (node.querySelector('button, [role="button"]')) score += 1;
-    if (node.querySelector('textarea, [contenteditable="true"], [role="textbox"]')) score += 1;
-    return score;
-  }
-
-  function findComposeRoot(startNode) {
-    const selectors = ['div[role="dialog"]', '.AD', '.M9', '.nH'];
-    for (const selector of selectors) {
-      const found = startNode.closest(selector);
-      if (found) return found;
-    }
-    return startNode;
-  }
-
-  function sampleVisibleText(node) {
-    if (!(node instanceof Element)) return '';
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
-      acceptNode(textNode) {
-        const parent = textNode.parentElement;
-        if (!parent) return NodeFilter.FILTER_REJECT;
-        const style = getComputedStyle(parent);
-        if (style.display === 'none' || style.visibility === 'hidden') return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
-    let text = '';
-    while (walker.nextNode() && text.length < 550) {
-      text += ` ${walker.currentNode.textContent || ''}`;
-    }
-    return text.trim();
-  }
-
-  function isPotentialPromptInput(node) {
-    if (!(node instanceof Element)) return false;
-    if (node.id === ROOT_ID || node.closest(`#${ROOT_ID}`)) return false;
-    const rect = safeRect(node);
-    if (!rect || rect.width < 180 || rect.height < 18) return false;
-    const style = getComputedStyle(node);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-    const role = (node.getAttribute('role') || '').toLowerCase();
-    const tag = node.tagName.toLowerCase();
-    const type = (node.getAttribute('type') || 'text').toLowerCase();
-    const isTextLike = tag === 'textarea' || (tag === 'input' && type === 'text') || node.getAttribute('contenteditable') === 'true' || role === 'textbox';
-    if (!isTextLike) return false;
-    if (rect.height > 180 || rect.width > window.innerWidth * 0.95) return false;
-    return true;
-  }
-
-  function safeRect(node) {
-    if (!(node instanceof Element)) return null;
-    const rect = node.getBoundingClientRect();
-    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
-    return rect;
-  }
-
-  function mountOverlay() {
-    if (!state.activeInput) return;
+  /* ─── Overlay mounting & positioning ─────────────────────── */
+  function ensureRoot() {
     if (!state.root) {
-      const root = document.createElement('div');
-      root.id = ROOT_ID;
-      state.root = root;
+      state.root = document.createElement('div');
+      state.root.id = ROOT_ID;
     }
-    if (!document.body.contains(state.root)) document.body.appendChild(state.root);
+    if (!document.body.contains(state.root)) {
+      document.body.appendChild(state.root);
+    }
   }
 
-  function unmountOverlay() {
-    if (state.root && state.root.parentElement) state.root.parentElement.removeChild(state.root);
+  function removeRoot() {
+    if (state.root && state.root.parentElement) {
+      state.root.parentElement.removeChild(state.root);
+    }
+    if (state.root) state.root.innerHTML = '';
   }
 
   function positionOverlay() {
     if (!state.root || !state.activeInput) return;
-    const inputRect = state.activeInput.getBoundingClientRect();
-    if (!inputRect || inputRect.width === 0) return;
-    const mode = state.store.settings.mode;
-    const gap = 10;
-    const bottomPx = window.innerHeight - inputRect.top + gap;
-    state.root.style.bottom = bottomPx + 'px';
-    state.root.style.top = 'auto';
+    const r = state.activeInput.getBoundingClientRect();
+    if (!r || r.width === 0) return;
+
+    const mode = state.store.mode;
+    const GAP = 10;
+
+    // Place above the input bar
+    state.root.style.bottom = (window.innerHeight - r.top + GAP) + 'px';
+    state.root.style.top    = 'auto';
+
     if (mode === 'mini') {
-      const w = Math.min(380, inputRect.width);
-      state.root.style.right = Math.max(8, window.innerWidth - inputRect.right) + 'px';
-      state.root.style.left = 'auto';
-      state.root.style.width = w + 'px';
+      const w = Math.min(380, Math.round(r.width * 0.85));
+      state.root.style.right  = Math.max(8, window.innerWidth - r.right) + 'px';
+      state.root.style.left   = 'auto';
+      state.root.style.width  = w + 'px';
     } else {
-      const composeRect = state.activeComposeRoot ? state.activeComposeRoot.getBoundingClientRect() : null;
-      const left = composeRect ? composeRect.left + 10 : inputRect.left;
-      const right = composeRect ? window.innerWidth - composeRect.right + 10 : window.innerWidth - inputRect.right;
-      state.root.style.left = Math.max(8, left) + 'px';
-      state.root.style.right = Math.max(8, right) + 'px';
+      // For small/large use the compose window bounds
+      const composeRoot = findComposeRoot(state.activeInput);
+      const cr = composeRoot ? composeRoot.getBoundingClientRect() : r;
+      state.root.style.left  = Math.max(8, cr.left + 8) + 'px';
+      state.root.style.right = Math.max(8, window.innerWidth - cr.right + 8) + 'px';
       state.root.style.width = 'auto';
     }
   }
 
-  function render() {
-    if (!state.root || !state.activeInput || state.hiddenInput === state.activeInput) return;
-    const text = getInputValue(state.activeInput).trim();
-    state.root.dataset.mode = state.store.settings.mode;
-    if (!text) {
-      // Show default state as soon as the Gemini bar is open (no text yet)
-      const composeContext = extractComposeContext(state.activeComposeRoot);
-      const defaultAnalysis = analyzePrompt('write an email', composeContext);
-      state.currentAnalysis = null;
-      state.root.innerHTML = buildMarkup(defaultAnalysis);
-      positionOverlay();
-      return;
+  function findComposeRoot(el) {
+    if (!el) return null;
+    const selectors = ['div[role="dialog"]', '.AD', '.M9', '.nH'];
+    for (const sel of selectors) {
+      const found = el.closest(sel);
+      if (found) return found;
     }
-    const composeContext = extractComposeContext(state.activeComposeRoot);
-    const analysis = analyzePrompt(text, composeContext);
-    state.currentAnalysis = analysis;
-    ensureSession();
-    if (state.promptSession && state.promptSession.baselineScore == null && analysis.wordCount >= 4) {
-      state.promptSession.baselineScore = analysis.score;
-      state.promptSession.baselineMissingCount = analysis.missingItems.length;
-    }
-    if (state.promptSession) {
-      state.promptSession.lastScore = analysis.score;
-      state.promptSession.lastMissingCount = analysis.missingItems.length;
-    }
-    state.root.innerHTML = buildMarkup(analysis);
-    positionOverlay();
+    return null;
   }
 
   function extractComposeContext(composeRoot) {
     const root = composeRoot || document;
-    const toSelectors = ['input[aria-label^="To"]', 'input[aria-label*="To "]', 'input[aria-label^="Para"]', 'input[aria-label*="Destinat"]', 'input[peoplekit-id]', 'span[email]', '[data-hovercard-id]'];
+    const toSels = ['input[aria-label^="To"]', 'input[aria-label*="To "]', 'input[peoplekit-id]', 'span[email]', '[data-hovercard-id]'];
     const recipients = new Set();
-    toSelectors.forEach((selector) => {
-      root.querySelectorAll(selector).forEach((el) => {
-        const value = (el.getAttribute('email') || el.getAttribute('data-hovercard-id') || ('value' in el ? el.value : '') || el.textContent || '').trim();
-        if (value) recipients.add(value);
-      });
-    });
-    const subjectEl = root.querySelector('input[name="subjectbox"], textarea[name="subjectbox"], input[placeholder*="Subject"], input[aria-label*="Subject"], input[placeholder*="Asunto"], input[aria-label*="Asunto"]');
-    return { to: Array.from(recipients).join(', '), subject: subjectEl ? getInputValue(subjectEl).trim() : '' };
+    toSels.forEach(sel => root.querySelectorAll(sel).forEach(el => {
+      const v = (el.getAttribute('email') || el.getAttribute('data-hovercard-id') || el.value || el.textContent || '').trim();
+      if (v) recipients.add(v);
+    }));
+    const subjectEl = root.querySelector('input[name="subjectbox"], input[placeholder*="Subject"], input[aria-label*="Subject"]');
+    return {
+      to:      Array.from(recipients).join(', '),
+      subject: subjectEl ? (subjectEl.value || '').trim() : ''
+    };
   }
 
-  function analyzePrompt(text, compose) {
-    const normalized = normalizeText(text);
-    const type = detectPromptType(normalized);
-    const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
-    const signals = detectSignals(normalized, text, compose, type);
-    const items = TYPE_DEFS[type].items.map((id) => ({ id, detected: Boolean(signals[id]), label: t(id), hint: t(`${id}Hint`) }));
-    const missingItems = items.filter((item) => !item.detected);
-    let score = 4 + Math.min(10, Math.floor(wordCount / 2));
-    if (signals.contextRich) score += 6;
-    if (compose.to) score += 2;
+  /* ─── Analysis ───────────────────────────────────────────── */
+  function normalize(s) {
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  function detectType(text) {
+    let best = 'general', bestN = 0;
+    for (const [type, def] of Object.entries(TYPE_DEFS)) {
+      if (type === 'general') continue;
+      const n = def.keywords.filter(k => text.includes(normalize(k))).length;
+      if (n > bestN) { bestN = n; best = type; }
+    }
+    return best;
+  }
+
+  function analyzePrompt(rawText, compose) {
+    const text = normalize(rawText);
+    const type = detectType(text);
+    const checks = TYPE_DEFS[type].checks;
+    const wordCount = rawText.trim().split(/\s+/).filter(Boolean).length;
+
+    const items = checks.map(label => {
+      const test = SIGNAL_TESTS[label];
+      let detected = test ? test.test(text) : false;
+      if (label === 'Recipient' && compose.to) detected = true;
+      if (label === 'Goal' && type !== 'general') detected = true;
+      return { label, hint: HINTS[label] || '', detected };
+    });
+
+    const missing = items.filter(i => !i.detected);
+
+    let score = 5 + Math.min(12, Math.floor(wordCount / 2));
+    if (compose.to)      score += 3;
     if (compose.subject) score += 2;
-    const weights = { tone: 12, recipient: 12, goal: 15, when: 17, length: 10, urgency: 13, context: 12, incident: 14, resolution: 14, audience: 12, cta: 13 };
-    items.forEach((item) => { if (item.detected) score += weights[item.id] || 10; });
-    if (missingItems.length === 0) score += 8;
-    score = clamp(score, 0, 100);
-    return { text, normalized, type, typeLabel: t(`type_${type}`), wordCount, items, missingItems, score, scoreLabel: qualityLabel(score), insight: t(TYPE_DEFS[type].insightKey), compose, signals };
+    items.forEach(i => { if (i.detected) score += 12; });
+    if (missing.length === 0) score += 8;
+    score = Math.max(0, Math.min(100, score));
+
+    const label = score >= 90 ? 'excellent' : score >= 75 ? 'strong' : score >= 60 ? 'decent' : 'needs work';
+    return { type, items, missing, score, scoreLabel: label, wordCount, insight: INSIGHTS[type] };
   }
 
-  function detectPromptType(normalized) {
-    let bestType = 'general';
-    let bestScore = 0;
-    Object.entries(TYPE_DEFS).forEach(([type, config]) => {
-      if (type === 'general') return;
-      const matches = config.keywords.reduce((count, keyword) => count + (normalized.includes(normalizeText(keyword)) ? 1 : 0), 0);
-      if (matches > bestScore) {
-        bestScore = matches;
-        bestType = type;
-      }
-    });
-    return bestType;
+  /* ─── Render ─────────────────────────────────────────────── */
+  function render() {
+    if (!state.root || !state.activeInput || state.dismissed) return;
+
+    const rawText = getInputValue(state.activeInput).trim();
+    const compose = extractComposeContext(findComposeRoot(state.activeInput));
+    const analysis = analyzePrompt(rawText || 'write an email', compose);
+
+    state.root.dataset.mode = state.store.mode;
+    state.root.innerHTML = buildMarkup(analysis);
+    positionOverlay();
   }
 
-  function detectSignals(normalized, originalText, compose, type) {
-    const lower = normalized;
-    const signals = {};
-    signals.tone = /(formal|friendly|urgent|professional|polite|warm|casual|tone)/.test(lower);
-    signals.recipient = Boolean(compose.to) || /(to my|to the|for my|for the|boss|manager|director|team|client|customer|supplier|professor|teacher|vendor|stakeholder)/.test(lower);
-    signals.goal = /(write|draft|compose|send|reply|ask|request|email|message)/.test(lower) || ['meeting', 'followup', 'apology', 'announcement'].includes(type);
-    signals.when = /(today|tomorrow|next week|monday|tuesday|wednesday|thursday|friday|morning|afternoon|evening|before|after|by\s+\w+|at\s+\d|asap|this week)/.test(lower);
-    signals.length = /(short|brief|concise|one paragraph|two paragraphs|detailed|bullet|medium|long)/.test(lower);
-    signals.urgency = /(urgent|asap|soon|deadline|before eod|by tomorrow|time-sensitive|priority)/.test(lower);
-    signals.context = /(following up|follow up|last email|previous email|waiting|regarding|about the|about my|based on|after our conversation|thread)/.test(lower) || (Boolean(compose.subject) && lower.length > 30);
-    signals.incident = /(because|after|mistake|error|issue|delay|wrong|forgot|problem|because of|missed|failed)/.test(lower) && originalText.length > 28;
-    signals.resolution = /(fix|refund|replace|correct|reschedule|offer|will send|i will|resolve|clarify|provide|share)/.test(lower);
-    signals.audience = /(team|everyone|all staff|company|department|clients|customers|users|stakeholders|leadership)/.test(lower) || (Boolean(compose.to) && /,|;/.test(compose.to));
-    signals.cta = /(reply|confirm|join|register|review|let me know|action required|approve|respond|sign off)/.test(lower);
-    signals.contextRich = originalText.trim().split(/\s+/).length >= 9 && /(project|update|invoice|launch|budget|proposal|meeting|timeline|scope|deliverable|milestone)/.test(lower);
-    if (type === 'meeting' && !signals.goal) signals.goal = /(meeting|schedule|call)/.test(lower);
-    if (type === 'announcement' && !signals.goal) signals.goal = /(announce|inform|share)/.test(lower);
-    if (type === 'followup' && !signals.goal) signals.goal = /(update|status|reply)/.test(lower);
-    if (type === 'apology' && !signals.goal) signals.goal = /(apolog|sorry)/.test(lower);
-    return signals;
+  function buildMarkup(a) {
+    const mode = state.store.mode;
+    if (mode === 'mini')  return buildMini(a);
+    if (mode === 'small') return buildSmall(a);
+    return buildLarge(a);
   }
 
-  function qualityLabel(score) {
-    if (score >= 90) return t('excellent');
-    if (score >= 75) return t('strong');
-    if (score >= 60) return t('decent');
-    return t('needsWork');
-  }
-
-  function buildMarkup(analysis) {
-    const mode = state.store.settings.mode;
-    if (mode === 'mini') return buildMiniMarkup(analysis);
-    if (mode === 'small') return buildSmallMarkup(analysis);
-    return buildLargeMarkup(analysis);
-  }
-
-  function buildMiniMarkup(analysis) {
+  /* ── Mini ── */
+  function buildMini(a) {
     return `
-      <div class="ecp-card ecp-card--advisor">
-        <div class="ecp-advisor-header">
-          <div><div class="ecp-advisor-title">🌱 ${escapeHtml(t('brand'))}</div></div>
-          <div class="ecp-controls">${modeButton('small', '▣', t('setSmall'))}${modeButton('large', '⬚', t('setLarge'))}${dismissButton()}</div>
-        </div>
-        <div class="ecp-mini-columns">
-          <div class="ecp-mini-main">
-            <div class="ecp-helper">${escapeHtml(t('addingDetails'))}</div>
-            <div class="ecp-list">${analysis.items.slice(0, 4).map(renderChecklistItem).join('')}</div>
+      <div class="ecp-wrap">
+        <div class="ecp-advisor">
+          ${head('mini')}
+          <div class="ecp-cols">
+            <div class="ecp-col-main">
+              <div class="ecp-hint">Adding these details saves energy:</div>
+              <div class="ecp-list">${a.items.slice(0, 4).map(checkItem).join('')}</div>
+            </div>
+            <div class="ecp-col-side">
+              <div class="ecp-col-side-title">This saves:</div>
+              <ul>${waterItems().concat(energyItems()).slice(0, 3).map(i => `<li>${i}</li>`).join('')}</ul>
+            </div>
           </div>
-          <div class="ecp-mini-side">
-            <div class="ecp-section-heading" style="color:#4f4f4f;">${escapeHtml(t('thisSaves'))}</div>
-            <ul>${[...buildWaterEquivalentItems(), ...buildEquivalentItems()].slice(0, 3).map((item) => `<li>${item}</li>`).join('')}</ul>
+          <div class="ecp-mini-actions">
+            <button class="ecp-btn ecp-btn-primary" data-act="improve">Improve my prompt</button>
           </div>
         </div>
-        <div class="ecp-mini-actions"><button class="ecp-button ecp-button--primary" data-ecp-action="improve">${escapeHtml(t('improve'))}</button></div>
-      </div>
-    `;
+      </div>`;
   }
 
-  function buildSmallMarkup(analysis) {
+  /* ── Small ── */
+  function buildSmall(a) {
     return `
-      <div class="ecp-layout">
-        <div class="ecp-card ecp-card--advisor ecp-card--small-advisor">
-          <div class="ecp-advisor-header">
-            <div><div class="ecp-advisor-title">🌱 ${escapeHtml(t('brand'))} — ${escapeHtml(t('tipTitle'))}</div></div>
-            <div class="ecp-controls">${modeButton('mini', '–', t('setMini'))}${modeButton('large', '⬚', t('setLarge'))}${dismissButton()}</div>
+      <div class="ecp-wrap">
+        <div class="ecp-advisor">
+          ${head('small')}
+          <div class="ecp-body">
+            ${qualityRow(a)}
+            <div class="ecp-hint">Adding these details avoids follow-up prompts and saves energy:</div>
+            <div class="ecp-list">${a.items.map(checkItem).join('')}</div>
           </div>
-          <div class="ecp-advisor-body">${renderQuality(analysis)}<div class="ecp-helper">${escapeHtml(t('addingDetails'))}</div><div class="ecp-list">${analysis.items.map(renderChecklistItem).join('')}</div></div>
           <div class="ecp-divider"></div>
-          <div class="ecp-footer-note">💡 ${escapeHtml(t('eachAvoided', { minutes: 4 }))}</div>
-          <div class="ecp-actions"><button class="ecp-button ecp-button--primary" data-ecp-action="improve">${escapeHtml(t('improve'))}</button><button class="ecp-button ecp-button--secondary" data-ecp-action="dismiss">${escapeHtml(t('dismiss'))}</button></div>
-        </div>
-        <div class="ecp-card ecp-card--stats ecp-card--small-stats">${renderStatsCard(analysis, false)}</div>
-      </div>
-    `;
-  }
-
-  function buildLargeMarkup(analysis) {
-    return `
-      <div class="ecp-layout">
-        <div class="ecp-card ecp-card--advisor ecp-card--large-advisor">
-          <div class="ecp-advisor-header">
-            <div><div class="ecp-advisor-title">🌱 ${escapeHtml(t('brand'))} — ${escapeHtml(t('tipTitle'))}</div></div>
-            <div class="ecp-controls">${modeButton('mini', '–', t('setMini'))}${modeButton('small', '▣', t('setSmall'))}${dismissButton()}</div>
+          <div class="ecp-foot">💡 Each avoided follow-up ≈ LED bulb on for 4 extra min</div>
+          <div class="ecp-actions">
+            <button class="ecp-btn ecp-btn-primary" data-act="improve">Improve my prompt</button>
+            <button class="ecp-btn ecp-btn-secondary" data-act="dismiss">Dismiss</button>
           </div>
-          <div class="ecp-advisor-body">${renderQuality(analysis)}<div class="ecp-helper">${escapeHtml(t('addingDetails'))}</div><div class="ecp-list">${analysis.items.map(renderChecklistItem).join('')}</div></div>
-          <div class="ecp-divider"></div>
-          <div class="ecp-footer-note">💡 ${escapeHtml(t('eachAvoided', { minutes: 4 }))}</div>
-          <div class="ecp-actions"><button class="ecp-button ecp-button--primary" data-ecp-action="improve">${escapeHtml(t('improve'))}</button><button class="ecp-button ecp-button--secondary" data-ecp-action="dismiss">${escapeHtml(t('dismiss'))}</button></div>
         </div>
-        <div class="ecp-card ecp-card--stats ecp-card--large-stats">${renderStatsCard(analysis, true)}</div>
-      </div>
-    `;
+        <div class="ecp-stats">${statsCard(a, false)}</div>
+      </div>`;
   }
 
-  function renderQuality(analysis) {
+  /* ── Large ── */
+  function buildLarge(a) {
+    return `
+      <div class="ecp-wrap">
+        <div class="ecp-advisor">
+          ${head('large')}
+          <div class="ecp-body">
+            ${qualityRow(a)}
+            <div class="ecp-hint">Adding these details avoids follow-up prompts and saves energy:</div>
+            <div class="ecp-list">${a.items.map(checkItem).join('')}</div>
+          </div>
+          <div class="ecp-divider"></div>
+          <div class="ecp-foot">💡 Each avoided follow-up ≈ LED bulb on for 4 extra min</div>
+          <div class="ecp-actions">
+            <button class="ecp-btn ecp-btn-primary" data-act="improve">Improve my prompt</button>
+            <button class="ecp-btn ecp-btn-secondary" data-act="dismiss">Dismiss</button>
+          </div>
+        </div>
+        <div class="ecp-stats">${statsCard(a, true)}</div>
+      </div>`;
+  }
+
+  function head(mode) {
+    const shrink  = mode !== 'mini'  ? `<button class="ecp-icn" data-act="mode" data-mode="mini"  title="Mini">–</button>` : '';
+    const medium  = mode !== 'small' ? `<button class="ecp-icn" data-act="mode" data-mode="small" title="Compact">▣</button>` : '';
+    const expand  = mode !== 'large' ? `<button class="ecp-icn" data-act="mode" data-mode="large" title="Expanded">⬚</button>` : '';
+    return `
+      <div class="ecp-head">
+        <div class="ecp-head-title">🌱 EcoPrompt — prompt efficiency tip</div>
+        <div class="ecp-head-btns">${shrink}${medium}${expand}<button class="ecp-icn" data-act="dismiss" title="Hide">×</button></div>
+      </div>`;
+  }
+
+  function qualityRow(a) {
     return `
       <div class="ecp-quality-row">
-        <div class="ecp-quality-label">${escapeHtml(t('promptQuality'))}</div>
-        <div class="ecp-quality-bar"><div class="ecp-quality-fill" style="width:${clamp(analysis.score, 0, 100)}%"></div></div>
-        <div class="ecp-quality-score">${escapeHtml(t('qualityBadge', { score: analysis.score, label: analysis.scoreLabel }))}</div>
-      </div>
-    `;
+        <div class="ecp-qlabel">Prompt quality</div>
+        <div class="ecp-qbar"><div class="ecp-qfill" style="width:${a.score}%"></div></div>
+        <div class="ecp-qscore">${a.score}% — ${a.scoreLabel}</div>
+      </div>`;
   }
 
-  function renderStatsCard(analysis, includeWeek) {
-    const stats = state.store.stats;
-    const totalKWh = round3(stats.promptsAvoided * ENERGY_PER_AVOIDED_PROMPT_KWH);
+  function checkItem(item) {
+    const cls = item.detected ? ' ok' : '';
+    const hint = item.detected ? 'detected ✓' : item.hint;
+    return `<div class="ecp-item${cls}"><div class="ecp-chk">✓</div><div class="ecp-iname">${esc(item.label)}<span>${esc(hint)}</span></div></div>`;
+  }
+
+  function statsCard(a, showWeek) {
+    const s = state.store;
+    const kwh = Math.round(s.promptsAvoided * KWH_PER_AVOIDED * 1000) / 1000;
     return `
-      <div class="ecp-stats">
-        <div class="ecp-stats-header">
-          <div class="ecp-stats-title">${escapeHtml(t('brand'))} — ${escapeHtml(t('sessionStats'))}</div>
-          <span class="ecp-subtitle">${escapeHtml(t('todaysSession', { date: formatToday() }))}</span>
-        </div>
-        <div class="ecp-stats-body">
-          <div class="ecp-section-heading">${escapeHtml(t('todaysSessionLabel'))}</div>
-          <div class="ecp-metric-grid">
-            <div class="ecp-metric"><div class="ecp-metric-value">${stats.promptsAvoided}</div><div class="ecp-metric-label">${escapeHtml(t('promptsAvoided'))}</div></div>
-            <div class="ecp-metric"><div class="ecp-metric-value">${totalKWh.toFixed(3)}</div><div class="ecp-metric-label">${escapeHtml(t('kWhSaved'))}</div></div>
-          </div>
-          ${includeWeek ? renderWeekBars() : ''}
-          <div class="ecp-equivalents"><div class="ecp-section-heading">${escapeHtml(t('equivalentTitle'))}</div><ul>${buildWaterEquivalentItems().map((item) => `<li>${item}</li>`).join('')}</ul></div>
-          <div class="ecp-equivalents" style="margin-top:10px;"><div class="ecp-section-heading">${escapeHtml(t('equivalentTitle'))}</div><ul>${buildEquivalentItems().map((item) => `<li>${item}</li>`).join('')}</ul></div>
-          <div class="ecp-callout"><div class="ecp-section-heading">${escapeHtml(t('emailDetected'))}</div><div style="color:#9bf0ab; margin-top:4px;">${escapeHtml(analysis.insight)}</div></div>
-        </div>
+      <div class="ecp-stats-head">
+        <div class="ecp-stats-title">EcoPrompt — session stats</div>
+        <div class="ecp-stats-sub">Today, ${formatDate()}</div>
       </div>
-    `;
+      <div class="ecp-stats-body">
+        <div class="ecp-section">Today's Session</div>
+        <div class="ecp-metrics">
+          <div class="ecp-metric"><div class="ecp-metric-val">${s.promptsAvoided}</div><div class="ecp-metric-lbl">prompts avoided</div></div>
+          <div class="ecp-metric"><div class="ecp-metric-val">${kwh.toFixed(3)}</div><div class="ecp-metric-lbl">kWh saved</div></div>
+        </div>
+        ${showWeek ? weekBars() : ''}
+        <div class="ecp-equiv">
+          <div class="ecp-section">That's equivalent to</div>
+          <ul>${waterItems().map(i => `<li>${i}</li>`).join('')}</ul>
+        </div>
+        <div class="ecp-equiv" style="margin-top:8px">
+          <div class="ecp-section">That's equivalent to</div>
+          <ul>${energyItems().map(i => `<li>${i}</li>`).join('')}</ul>
+        </div>
+        <div class="ecp-callout">
+          <div class="ecp-callout-title">Email detected</div>
+          ${esc(a.insight)}
+        </div>
+      </div>`;
   }
 
-  function renderWeekBars() {
-    const rows = getWeekRows();
-    return `
-      <div class="ecp-week-title">${escapeHtml(t('thisWeek'))}</div>
-      <div class="ecp-week-bars">${rows.map((row) => `<div class="ecp-week-row"><div>${escapeHtml(row.label)}</div><div class="ecp-week-track"><div class="ecp-week-fill" style="width:${row.value}%"></div></div><div>${row.value}%</div></div>`).join('')}</div>
-    `;
-  }
-
-  function getWeekRows() {
-    const rows = [];
-    const formatter = new Intl.DateTimeFormat(state.lang, { weekday: 'short' });
-    for (let offset = 5; offset >= 0; offset -= 1) {
-      const date = new Date();
-      date.setDate(date.getDate() - offset);
-      const key = todayKey(date);
-      const history = state.store.stats.history[key];
-      const value = history && history.sessions > 0 ? clamp(Math.round(history.totalScore / history.sessions), 0, 100) : 0;
-      rows.push({ label: offset === 0 ? t('today') : formatter.format(date), value });
+  function weekBars() {
+    const days = [];
+    const fmt = new Intl.DateTimeFormat('en', { weekday: 'short' });
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      const h = state.store.history[key];
+      const v = h && h.sessions ? Math.min(100, Math.round(h.totalScore / h.sessions)) : 0;
+      days.push({ label: i === 0 ? 'Now' : fmt.format(d), v });
     }
-    return rows;
+    return `
+      <div class="ecp-section" style="margin-top:4px">Prompt efficiency — this week</div>
+      <div class="ecp-week">
+        ${days.map(r => `
+          <div class="ecp-week-row">
+            <div>${esc(r.label)}</div>
+            <div class="ecp-week-track"><div class="ecp-week-fill" style="width:${r.v}%"></div></div>
+            <div>${r.v}%</div>
+          </div>`).join('')}
+      </div>`;
   }
 
-  function renderChecklistItem(item) {
-    return item.detected
-      ? `<div class="ecp-item ecp-item--detected"><div class="ecp-check">✓</div><div class="ecp-item-title"><span>${escapeHtml(item.label)}</span><span>${escapeHtml(t('detected'))} ✓</span></div></div>`
-      : `<div class="ecp-item"><div class="ecp-check">✓</div><div class="ecp-item-title"><span>${escapeHtml(item.label)}</span><span>${escapeHtml(item.hint)}</span></div></div>`;
-  }
-
-  function buildWaterEquivalentItems() {
-    const kWh = round3(state.store.stats.promptsAvoided * ENERGY_PER_AVOIDED_PROMPT_KWH);
-    const waterMl = Math.round(kWh * 3600000 / (4186 * 50));
-    const tapSeconds = Math.max(1, Math.round(kWh * 3600000 / 4186));
-    const glassLabel = waterMl >= 100 ? 'A half full glass of water' : `${waterMl} ml of water heated`;
+  function waterItems() {
+    const kwh = state.store.promptsAvoided * KWH_PER_AVOIDED;
+    const ml  = Math.round(kwh * 3600000 / (4186 * 50));
+    const tap = Math.max(1, Math.round(kwh * 360000 / 4186));
     return [
-      `🥛 ${glassLabel}`,
-      `🚿 ${escapeHtml(t('equivalentTapRunning', { time: tapSeconds < 60 ? tapSeconds + ' sec' : Math.round(tapSeconds / 60) + ' min' }))}`
+      `🥛 ${ml >= 100 ? 'A half full glass of water' : ml + ' ml of heated water'}`,
+      `🚿 Leaving the tap running ${tap < 60 ? tap + ' sec' : Math.round(tap / 60) + ' min'}`
     ];
   }
 
-  function buildEquivalentItems() {
-    const kWh = round3(state.store.stats.promptsAvoided * ENERGY_PER_AVOIDED_PROMPT_KWH);
+  function energyItems() {
+    const kwh = state.store.promptsAvoided * KWH_PER_AVOIDED;
     return [
-      `💡 ${escapeHtml(t('equivalentLightbulb', { time: formatDurationFromKWh(kWh, LIGHTBULB_WATTS) }))}`,
-      `📺 ${escapeHtml(t('equivalentTv', { time: formatDurationFromKWh(kWh, TV_WATTS) }))}`,
-      `🔥 ${escapeHtml(t('equivalentMicrowave', { time: formatDurationFromKWh(kWh, MICROWAVE_WATTS) }))}`
+      `💡 Lightbulb on for ${dur(kwh, 10)}`,
+      `📺 TV running for ~${dur(kwh, 100)}`,
+      `🔥 Microwave for ~${dur(kwh, 1000)}`
     ];
   }
+
+  function dur(kwh, watts) {
+    if (!kwh || kwh <= 0) return '0 sec';
+    const mins = (kwh / (watts / 1000)) * 60;
+    if (mins < 1)  return Math.max(1, Math.round(mins * 60)) + ' sec';
+    if (mins < 60) return Math.round(mins) + ' min';
+    const h = Math.floor(mins / 60), m = Math.round(mins % 60);
+    return m ? `${h} hr ${m} min` : `${h} hr`;
+  }
+
+  function formatDate() {
+    try { return new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date()); }
+    catch (_) { return new Date().toLocaleDateString(); }
+  }
+
+  /* ─── Improve prompt ─────────────────────────────────────── */
+  const SUFFIXES = {
+    'Tone?':           'Use a formal and professional tone.',
+    'Recipient':       'Make clear who the email is for.',
+    'Goal':            'State clearly the outcome you want.',
+    'When?':           'Include 2 possible time slots.',
+    'Length?':         'Keep it concise in one short paragraph.',
+    'Urgency?':        'Add when you need a reply.',
+    'Context?':        'Mention the previous email or thread.',
+    'Incident?':       'Briefly explain what happened.',
+    'Resolution?':     'Explain the fix or resolution you are offering.',
+    'Audience?':       'Specify who the announcement is for.',
+    'Call to action?': 'Include the action you want recipients to take.'
+  };
 
   function improvePrompt() {
-    if (!state.activeInput || !state.currentAnalysis) return;
-    const improved = buildImprovedPrompt(state.currentAnalysis);
-    if (!improved || improved === state.currentAnalysis.text.trim()) return;
+    if (!state.activeInput) return;
+    const raw = getInputValue(state.activeInput).trim();
+    const compose = extractComposeContext(findComposeRoot(state.activeInput));
+    const analysis = analyzePrompt(raw || 'write an email', compose);
+    const additions = analysis.missing.slice(0, 4).map(i => SUFFIXES[i.label]).filter(Boolean);
+    if (!additions.length) { showToast('Your prompt already looks great!'); return; }
+    const sep = /[.!?]$/.test(raw) ? ' ' : '. ';
+    const improved = (raw || 'Write an email') + sep + additions.join(' ');
     setInputValue(state.activeInput, improved);
-    state.hiddenInput = null;
-    ensureSession();
-    if (state.promptSession) state.promptSession.usedImproveButton = true;
-    state.store.stats.improvementsApplied += 1;
+    state.store.improvementsApplied++;
     saveStore();
     render();
-    showToast(t('improvedToast'));
+    showToast('Prompt improved ✓');
   }
 
-  function buildImprovedPrompt(analysis) {
-    const current = analysis.text.trim().replace(/\s+/g, ' ');
-    const suffixes = [];
-    const keyMap = {
-      meeting: { tone: 'promptImprovedSuffixMeetingTone', recipient: 'promptImprovedSuffixMeetingRecipient', goal: 'promptImprovedSuffixMeetingGoal', when: 'promptImprovedSuffixMeetingWhen', length: 'promptImprovedSuffixMeetingLength' },
-      followup: { tone: 'promptImprovedSuffixFollowupTone', context: 'promptImprovedSuffixFollowupContext', urgency: 'promptImprovedSuffixFollowupUrgency', goal: 'promptImprovedSuffixFollowupGoal', length: 'promptImprovedSuffixFollowupLength' },
-      apology: { tone: 'promptImprovedSuffixApologyTone', incident: 'promptImprovedSuffixApologyIncident', resolution: 'promptImprovedSuffixApologyResolution', goal: 'promptImprovedSuffixApologyGoal', length: 'promptImprovedSuffixApologyLength' },
-      announcement: { audience: 'promptImprovedSuffixAnnouncementAudience', tone: 'promptImprovedSuffixAnnouncementTone', goal: 'promptImprovedSuffixAnnouncementGoal', cta: 'promptImprovedSuffixAnnouncementCta', length: 'promptImprovedSuffixAnnouncementLength' },
-      general: { tone: 'promptImprovedSuffixGeneralTone', recipient: 'promptImprovedSuffixGeneralRecipient', goal: 'promptImprovedSuffixGeneralGoal', length: 'promptImprovedSuffixGeneralLength', context: 'promptImprovedSuffixGeneralContext' }
-    }[analysis.type] || {};
-    analysis.missingItems.forEach((item) => { const key = keyMap[item.id]; if (key) suffixes.push(t(key)); });
-    const uniqueSuffixes = Array.from(new Set(suffixes)).slice(0, 4);
-    if (!uniqueSuffixes.length) return current;
-    const separator = /[.!?]$/.test(current) ? ' ' : '. ';
-    return `${current}${separator}${uniqueSuffixes.join(' ')}`;
+  /* ─── Event handling ─────────────────────────────────────── */
+  function onInput(e) {
+    if (state.activeInput && e.target === state.activeInput) render();
   }
 
-  function formatDurationFromKWh(kWh, watts) {
-    if (!kWh || kWh <= 0 || !watts) return '0 min';
-    const hours = kWh / (watts / 1000);
-    const totalMinutes = Math.round(hours * 60);
-    if (totalMinutes < 1) {
-      const seconds = Math.max(1, Math.round(hours * 3600));
-      return state.lang === 'es' ? `${seconds} s` : `${seconds} sec`;
-    }
-    if (totalMinutes < 60) return `${totalMinutes} min`;
-    const hrs = Math.floor(totalMinutes / 60);
-    const mins = totalMinutes % 60;
-    if (!mins) return state.lang === 'es' ? `${hrs} h` : `${hrs} hr`;
-    return state.lang === 'es' ? `${hrs} h ${mins} min` : `${hrs} hr ${mins} min`;
-  }
-
-  function formatToday() {
-    try {
-      return new Intl.DateTimeFormat(state.lang, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date());
-    } catch (_) {
-      return new Date().toLocaleDateString();
+  function onClick(e) {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest('[data-act]');
+    if (!btn) return;
+    const act  = btn.getAttribute('data-act');
+    const mode = btn.getAttribute('data-mode');
+    if (act === 'mode' && mode) {
+      e.stopPropagation();
+      state.store.mode = mode;
+      saveStore();
+      render();
+    } else if (act === 'dismiss') {
+      e.stopPropagation();
+      state.dismissed = true;
+      removeRoot();
+    } else if (act === 'improve') {
+      e.stopPropagation();
+      improvePrompt();
     }
   }
 
-  function getInputValue(input) {
-    if (!input) return '';
-    if ('value' in input) return input.value || '';
-    return input.innerText || input.textContent || '';
-  }
+  /* ─── Main scan loop ─────────────────────────────────────── */
+  function scan() {
+    const found = findGeminiBar();
 
-  function setInputValue(input, value) {
-    if ('value' in input) {
-      input.focus();
-      input.value = value;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      try { input.setSelectionRange(value.length, value.length); } catch (_) {}
+    if (!found) {
+      // Bar closed — clean up
+      if (state.activeInput) {
+        state.activeInput = null;
+        state.dismissed = false;
+        removeRoot();
+      }
       return;
     }
-    input.focus();
-    input.textContent = value;
-    input.dispatchEvent(new InputEvent('input', { data: value, inputType: 'insertText', bubbles: true, cancelable: true }));
+
+    const { input, container } = found;
+
+    // New bar opened
+    if (input !== state.activeInput) {
+      state.activeInput = input;
+      state.activeComposeRoot = container;
+      state.dismissed = false;
+      ensureRoot();
+      render();
+      return;
+    }
+
+    // Same bar, keep overlay positioned
+    if (!state.dismissed) {
+      ensureRoot();
+      positionOverlay();
+    }
   }
 
-  function modeButton(mode, label, title) {
-    return `<button class="ecp-icon-button" data-ecp-action="mode" data-mode="${escapeHtml(mode)}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">${label}</button>`;
+  /* ─── Toast ──────────────────────────────────────────────── */
+  function showToast(msg) {
+    document.querySelectorAll('.ecp-toast').forEach(el => el.remove());
+    const t = document.createElement('div');
+    t.className = 'ecp-toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 2400);
   }
 
-  function dismissButton() {
-    return `<button class="ecp-icon-button" data-ecp-action="dismiss" title="${escapeHtml(t('hide'))}" aria-label="${escapeHtml(t('hide'))}">×</button>`;
+  /* ─── History helpers ─────────────────────────────────────── */
+  function recordSession(score) {
+    const key = new Date().toISOString().slice(0, 10);
+    const h = state.store.history[key] || { sessions: 0, totalScore: 0 };
+    h.sessions++;
+    h.totalScore += score;
+    state.store.history[key] = h;
   }
 
-  function normalizeText(value) {
-    return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
-  function round3(value) { return Math.round(value * 1000) / 1000; }
-  function escapeHtml(value) { return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+  /* ─── Init ───────────────────────────────────────────────── */
+  function init() {
+    injectStyles();
 
-  function showToast(message) {
-    const existing = document.querySelector('.ecp-toast');
-    if (existing) existing.remove();
-    const toast = document.createElement('div');
-    toast.className = 'ecp-toast';
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    window.setTimeout(() => toast.remove(), 2200);
+    document.addEventListener('input',  onInput,  true);
+    document.addEventListener('click',  onClick,  true);
+    window.addEventListener('resize',   () => positionOverlay());
+    window.addEventListener('scroll',   () => positionOverlay(), true);
+
+    // Scan for the Gemini bar every 500ms
+    setInterval(scan, 500);
+    scan(); // immediate first check
+
+    if (typeof GM_registerMenuCommand === 'function') {
+      GM_registerMenuCommand('EcoPrompt: Reset stats', () => {
+        state.store.promptsAvoided = 0;
+        state.store.kWhSaved = 0;
+        state.store.history = {};
+        saveStore();
+        render();
+        showToast('Stats reset');
+      });
+    }
   }
 
   init();
