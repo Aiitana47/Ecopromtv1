@@ -272,42 +272,86 @@
   }
 
   /* ─── Detection ──────────────────────────────────────────── */
+  let _lastDebugLog = 0;
+  function debugLog(...args) {
+    const now = Date.now();
+    if (now - _lastDebugLog > 3000) { // log at most once per 3s
+      console.log('[EcoPrompt]', ...args);
+      _lastDebugLog = now;
+    }
+  }
+
+  function btnLabel(btn) {
+    return ((btn.textContent || '') + ' ' + (btn.getAttribute('aria-label') || '')).toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
   function findGeminiBar() {
-    // Find every "Cancel" button on the page
+    // ── Strategy 1: Cancel + Create buttons share an ancestor that also has an input ──
     const allBtns = Array.from(document.querySelectorAll('button, [role="button"]'));
+    const cancelBtns = allBtns.filter(b => isVisible(b) && btnLabel(b).includes('cancel'));
+    const createBtns = allBtns.filter(b => isVisible(b) && btnLabel(b).includes('create'));
 
-    for (const cancelBtn of allBtns) {
-      const cancelText = (cancelBtn.textContent || cancelBtn.getAttribute('aria-label') || '').trim().toLowerCase();
-      if (cancelText !== 'cancel') continue;
-      if (!isVisible(cancelBtn)) continue;
+    debugLog(`Buttons on page: ${allBtns.length}, cancel: ${cancelBtns.length}, create: ${createBtns.length}`);
 
-      // Walk up and find a node that ALSO contains a "Create" button AND a text input
+    for (const cancelBtn of cancelBtns) {
       let node = cancelBtn.parentElement;
-      for (let d = 0; d < 12 && node && node !== document.body; d++, node = node.parentElement) {
-        // Check for "Create" button inside this node
-        const btns = Array.from(node.querySelectorAll('button, [role="button"]'));
-        const hasCreate = btns.some(b => (b.textContent || b.getAttribute('aria-label') || '').trim().toLowerCase() === 'create');
+      for (let d = 0; d < 14 && node && node !== document.body; d++, node = node.parentElement) {
+        // Does this ancestor also contain a Create button?
+        const hasCreate = createBtns.some(b => node.contains(b));
         if (!hasCreate) continue;
 
-        // Check for a text input inside this node
-        const inputSel = [
-          'textarea',
-          'input[type="text"]',
-          'input:not([type])',
-          '[contenteditable="true"]',
-          '[role="textbox"]'
-        ].join(',');
-        const inputs = Array.from(node.querySelectorAll(inputSel))
-          .filter(el => !el.closest('#' + ROOT_ID) && isVisible(el));
-
-        if (inputs.length > 0) {
-          const input = inputs[0];
+        // Find a text input inside this ancestor
+        const input = findEditableIn(node);
+        if (input) {
+          debugLog('Strategy 1 matched:', node.tagName, node.className.slice(0, 60));
           return { input, container: node };
         }
-        // Has Cancel+Create but no input yet at this level — keep going up
       }
     }
+
+    // ── Strategy 2: Any small visible input near a Cancel button (by screen proximity) ──
+    const allInputs = Array.from(document.querySelectorAll(
+      'textarea, input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]), [contenteditable], [role="textbox"]'
+    )).filter(el => !el.closest('#' + ROOT_ID) && isVisible(el));
+
+    debugLog(`Visible inputs: ${allInputs.length}`);
+
+    for (const input of allInputs) {
+      const ir = input.getBoundingClientRect();
+      if (ir.height > 180 || ir.width < 60) continue;
+      // Is any Cancel button within 120px vertically of this input?
+      const nearCancel = cancelBtns.some(b => {
+        const br = b.getBoundingClientRect();
+        return Math.abs(br.top - ir.top) < 120 && Math.abs(br.left - ir.left) < 800;
+      });
+      if (nearCancel) {
+        debugLog('Strategy 2 matched input at:', Math.round(ir.top), Math.round(ir.bottom));
+        return { input, container: input.closest('form') || input.parentElement };
+      }
+    }
+
+    // ── Strategy 3: Input at bottom of screen in a compose window ──
+    for (const input of allInputs) {
+      const ir = input.getBoundingClientRect();
+      if (ir.height > 100 || ir.width < 100) continue;
+      if (ir.bottom < window.innerHeight * 0.55) continue;
+      // Must NOT be the main compose body (which is very tall and wide)
+      const isComposeBody = ir.height > 60 && ir.width > window.innerWidth * 0.4;
+      if (isComposeBody) continue;
+      // Must be inside a compose-like dialog
+      const inCompose = !!input.closest('[role="dialog"], .AD, .M9');
+      if (!inCompose) continue;
+      debugLog('Strategy 3 matched input at bottom of compose');
+      return { input, container: input.closest('[role="dialog"], .AD, .M9') || input.parentElement };
+    }
+
     return null;
+  }
+
+  function findEditableIn(node) {
+    const sel = 'textarea, input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="search"]), [contenteditable], [role="textbox"]';
+    const els = Array.from(node.querySelectorAll(sel)).filter(el => !el.closest('#' + ROOT_ID) && isVisible(el));
+    return els[0] || null;
   }
 
   function isVisible(el) {
