@@ -382,6 +382,25 @@
     }
   }
 
+  /* ─── Trusted Types helper (Gmail enforces this) ─────────── */
+  let _ttPolicy = null;
+  function setHTML(el, html) {
+    try {
+      if (!_ttPolicy && typeof trustedTypes !== 'undefined' && trustedTypes.createPolicy) {
+        _ttPolicy = trustedTypes.createPolicy('ecoprompt#html', { createHTML: s => s });
+      }
+      el.innerHTML = _ttPolicy ? _ttPolicy.createHTML(html) : html;
+    } catch (e) {
+      // fallback: build via DOMParser
+      try {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        el.replaceChildren(...Array.from(doc.body.childNodes));
+      } catch (_) {
+        el.textContent = '';
+      }
+    }
+  }
+
   /* ─── Overlay mounting & positioning ─────────────────────── */
   function ensureRoot() {
     if (!state.root) {
@@ -397,7 +416,7 @@
     if (state.root && state.root.parentElement) {
       state.root.parentElement.removeChild(state.root);
     }
-    if (state.root) state.root.innerHTML = '';
+    if (state.root) setHTML(state.root, '');
   }
 
   function positionOverlay() {
@@ -503,7 +522,7 @@
     const analysis = analyzePrompt(rawText || 'write an email', compose);
 
     state.root.dataset.mode = state.store.mode;
-    state.root.innerHTML = buildMarkup(analysis);
+    setHTML(state.root, buildMarkup(analysis));
     positionOverlay();
   }
 
