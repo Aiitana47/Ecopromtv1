@@ -744,15 +744,22 @@
     const compose = extractComposeContext(findComposeRoot(state.activeInput));
     const analysis = analyzePrompt(raw || 'write an email', compose);
     const additions = analysis.missing.slice(0, 4).map(i => SUFFIXES[i.label]).filter(Boolean);
-    if (!additions.length) { showToast('Your prompt already looks great!'); return; }
-    const sep = /[.!?]$/.test(raw) ? ' ' : '. ';
-    const improved = (raw || 'Write an email') + sep + additions.join(' ');
-    setInputValue(state.activeInput, improved);
+
+    // Always count as an avoided follow-up prompt and record the session
     state.store.improvementsApplied++;
     state.store.promptsAvoided++;
     state.store.kWhSaved += WH_PER_AVOIDED / 1000;
     recordSession(analysis.score);
     saveStore();
+
+    if (!additions.length) {
+      render();
+      showToast('Great prompt! Saved to your stats ✓');
+      return;
+    }
+    const sep = /[.!?]$/.test(raw) ? ' ' : '. ';
+    const improved = (raw || 'Write an email') + sep + additions.join(' ');
+    setInputValue(state.activeInput, improved);
     render();
     showToast('Prompt improved ✓');
   }
