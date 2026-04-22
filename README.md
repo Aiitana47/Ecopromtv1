@@ -142,24 +142,6 @@ Tampermonkey menu commands are also registered for:
 - cycling the UI mode
 - resetting EcoPrompt stats
 
-## Current limitations
-
-- The real Gmail/Gemini DOM could not be tested directly here, so the detection logic is intentionally heuristic and may need a small selector adjustment depending on the user account layout.
-- Gmail changes DOM structure and class names frequently.
-- The energy estimate is illustrative.
-- The Gemini "Create" action is also detected through visible text, so if Google changes that copy a regex update may be needed.
-- This version is intentionally **English-only** for both UI copy and prompt classification.
-
-## Recommended next steps
-
-- add a persistent settings panel
-- split statistics by email type
-- export stats
-- run A/B tests on improved prompts
-- add unit tests for `detectPromptType()` and `detectSignals()`
-- build a visual Gmail-like demo page for UI testing
-- package a Chrome extension version after the Tampermonkey prototype
-
 ## Local development
 
 Syntax check:
