@@ -18,7 +18,10 @@
   /* ─── Constants ─────────────────────────────────────────── */
   const ROOT_ID   = 'ecoprompt-root';
   const STORE_KEY = 'ecoprompt_v2';
-  const KWH_PER_AVOIDED = 0.001;
+  // Source: Google Gemini Apps energy report (median per-prompt estimates)
+  const WH_PER_AVOIDED   = 0.24;   // watt-hours
+  const CO2G_PER_AVOIDED = 0.03;   // grams CO₂e
+  const ML_PER_AVOIDED   = 0.26;   // millilitres of water (~5 drops)
 
   const TYPE_DEFS = {
     meeting: {
@@ -552,7 +555,7 @@
             </div>
             <div class="ecp-col-side">
               <div class="ecp-col-side-title">This saves:</div>
-              <ul>${waterItems().concat(energyItems()).slice(0, 3).map(i => `<li>${i}</li>`).join('')}</ul>
+              <ul><li>${waterItem()}</li><li>${energyItem()}</li><li>${co2Item()}</li></ul>
             </div>
           </div>
           <div class="ecp-mini-actions">
@@ -636,7 +639,7 @@
 
   function statsCard(a, showWeek) {
     const s = state.store;
-    const kwh = Math.round(s.promptsAvoided * KWH_PER_AVOIDED * 1000) / 1000;
+    const wh = (s.promptsAvoided * WH_PER_AVOIDED).toFixed(2);
     return `
       <div class="ecp-stats-head">
         <div class="ecp-stats-title">EcoPrompt — session stats</div>
@@ -646,16 +649,16 @@
         <div class="ecp-section">Today's Session</div>
         <div class="ecp-metrics">
           <div class="ecp-metric"><div class="ecp-metric-val">${s.promptsAvoided}</div><div class="ecp-metric-lbl">prompts avoided</div></div>
-          <div class="ecp-metric"><div class="ecp-metric-val">${kwh.toFixed(3)}</div><div class="ecp-metric-lbl">kWh saved</div></div>
+          <div class="ecp-metric"><div class="ecp-metric-val">${wh}</div><div class="ecp-metric-lbl">Wh saved</div></div>
         </div>
         ${showWeek ? weekBars() : ''}
         <div class="ecp-equiv">
           <div class="ecp-section">That's equivalent to</div>
-          <ul>${waterItems().map(i => `<li>${i}</li>`).join('')}</ul>
-        </div>
-        <div class="ecp-equiv" style="margin-top:8px">
-          <div class="ecp-section">That's equivalent to</div>
-          <ul>${energyItems().map(i => `<li>${i}</li>`).join('')}</ul>
+          <ul>
+            <li>${waterItem()}</li>
+            <li>${energyItem()}</li>
+            <li>${co2Item()}</li>
+          </ul>
         </div>
         <div class="ecp-callout">
           <div class="ecp-callout-title">Email detected</div>
@@ -671,47 +674,48 @@
       const d = new Date(); d.setDate(d.getDate() - i);
       const key = d.toISOString().slice(0, 10);
       const h = state.store.history[key];
-      const v = h && h.sessions ? Math.min(100, Math.round(h.totalScore / h.sessions)) : 0;
-      days.push({ label: i === 0 ? 'Now' : fmt.format(d), v });
+      days.push({ label: i === 0 ? 'Today' : fmt.format(d), avoided: h ? (h.avoided || 0) : 0 });
     }
+    const maxAvoided = Math.max(1, ...days.map(d => d.avoided));
     return `
-      <div class="ecp-section" style="margin-top:4px">Prompt efficiency — this week</div>
+      <div class="ecp-section" style="margin-top:4px">Prompts avoided — last 6 days</div>
       <div class="ecp-week">
         ${days.map(r => `
           <div class="ecp-week-row">
             <div>${esc(r.label)}</div>
-            <div class="ecp-week-track"><div class="ecp-week-fill" style="width:${r.v}%"></div></div>
-            <div>${r.v}%</div>
+            <div class="ecp-week-track"><div class="ecp-week-fill" style="width:${Math.round(r.avoided / maxAvoided * 100)}%"></div></div>
+            <div>${r.avoided}</div>
           </div>`).join('')}
       </div>`;
   }
 
-  function waterItems() {
-    const kwh = state.store.promptsAvoided * KWH_PER_AVOIDED;
-    const ml  = Math.round(kwh * 3600000 / (4186 * 50));
-    const tap = Math.round(kwh * 360000 / 4186);
-    return [
-      `🥛 ${ml >= 100 ? 'A half full glass of water' : ml + ' ml of heated water'}`,
-      `🚿 Tap running ${tap < 60 ? tap + ' sec' : Math.round(tap / 60) + ' min'}`
-    ];
+  function waterItem() {
+    const n = state.store.promptsAvoided;
+    const ml = n * ML_PER_AVOIDED;
+    const drops = Math.round(ml * 20); // ~20 drops per ml
+    return `💧 ${drops} drop${drops !== 1 ? 's' : ''} of water (${ml.toFixed(2)} ml)`;
   }
 
-  function energyItems() {
-    const kwh = state.store.promptsAvoided * KWH_PER_AVOIDED;
-    return [
-      `💡 Lightbulb on for ${dur(kwh, 10)}`,
-      `📺 TV running for ~${dur(kwh, 100)}`,
-      `🔥 Microwave for ~${dur(kwh, 1000)}`
-    ];
+  function energyItem() {
+    const n = state.store.promptsAvoided;
+    const wh = n * WH_PER_AVOIDED;
+    // LED bulb at 10W
+    const mins = (wh / 10) * 60;
+    let timeStr;
+    if (mins <= 0)      timeStr = '0 sec';
+    else if (mins < 1)  timeStr = Math.round(mins * 60) + ' sec';
+    else if (mins < 60) timeStr = Math.round(mins) + ' min';
+    else { const h = Math.floor(mins / 60), m = Math.round(mins % 60); timeStr = m ? `${h} hr ${m} min` : `${h} hr`; }
+    return `💡 LED bulb on for ${timeStr} (${wh.toFixed(2)} Wh)`;
   }
 
-  function dur(kwh, watts) {
-    if (!kwh || kwh <= 0) return '0 sec';
-    const mins = (kwh / (watts / 1000)) * 60;
-    if (mins < 1)  return Math.round(mins * 60) + ' sec';
-    if (mins < 60) return Math.round(mins) + ' min';
-    const h = Math.floor(mins / 60), m = Math.round(mins % 60);
-    return m ? `${h} hr ${m} min` : `${h} hr`;
+  function co2Item() {
+    const n = state.store.promptsAvoided;
+    const g = n * CO2G_PER_AVOIDED;
+    // ~120 g CO₂/km driven → 0.12 g/m
+    const cm = Math.round(g / 0.0012);
+    let dist = cm < 100 ? cm + ' cm' : cm < 100000 ? Math.round(cm / 100) + ' m' : (cm / 100000).toFixed(1) + ' km';
+    return `🌿 ${g.toFixed(2)} g CO₂e = ${dist} not driven`;
   }
 
   function formatDate() {
@@ -745,6 +749,9 @@
     const improved = (raw || 'Write an email') + sep + additions.join(' ');
     setInputValue(state.activeInput, improved);
     state.store.improvementsApplied++;
+    state.store.promptsAvoided++;
+    state.store.kWhSaved += WH_PER_AVOIDED / 1000;
+    recordSession(analysis.score);
     saveStore();
     render();
     showToast('Prompt improved ✓');
@@ -823,9 +830,10 @@
   /* ─── History helpers ─────────────────────────────────────── */
   function recordSession(score) {
     const key = new Date().toISOString().slice(0, 10);
-    const h = state.store.history[key] || { sessions: 0, totalScore: 0 };
+    const h = state.store.history[key] || { sessions: 0, totalScore: 0, avoided: 0 };
     h.sessions++;
     h.totalScore += score;
+    h.avoided = (h.avoided || 0) + 1;
     state.store.history[key] = h;
   }
 
