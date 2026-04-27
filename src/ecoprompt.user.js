@@ -63,7 +63,8 @@
   const SIGNAL_TESTS = {
     'Tone?':          /formal|friendly|urgent|professional|polite|warm|casual|tone/,
     'Recipient':      /to my|to the|for my|for the|boss|manager|director|team|client|customer|supplier|professor|teacher/,
-    'Goal':           /write|draft|compose|send|reply|ask|request|email|message/,
+    // antes contaba "write an email" como Goal
+    'Goal':           /\b(ask|request|invite|schedule|reschedule|confirm|apologize|apologise|follow up|remind|thank|decline|accept|inform|announce|explain|clarify|negotiate|complain|cancel|approve|review|register|reply to|respond to)\b/,
     'When?':          /today|tomorrow|next week|monday|tuesday|wednesday|thursday|friday|morning|afternoon|evening|asap|this week/,
     'Length?':        /short|brief|concise|one paragraph|two paragraphs|detailed|bullet|medium|long/,
     'Urgency?':       /urgent|asap|soon|deadline|before eod|by tomorrow|time-sensitive|priority/,
@@ -495,27 +496,44 @@
     const type = detectType(text);
     const checks = TYPE_DEFS[type].checks;
     const wordCount = rawText.trim().split(/\s+/).filter(Boolean).length;
-
+  
     const items = checks.map(label => {
       const test = SIGNAL_TESTS[label];
       let detected = test ? test.test(text) : false;
+  
       if (label === 'Recipient' && compose.to) detected = true;
-      if (label === 'Goal' && type !== 'general') detected = true;
+  
+      // En Gmail escribir email es implícito, así que "write/draft/compose email"
+      // ya no cuenta como Goal.
+      if (label === 'Goal') {
+        detected = /\b(ask|request|invite|schedule|reschedule|confirm|apologize|apologise|follow up|remind|thank|decline|accept|inform|announce|explain|clarify|negotiate|complain|cancel|approve|review|register|reply to|respond to)\b/.test(text);
+  
+        // Para tipos específicos, solo cuenta como goal si hay acción concreta,
+        // no simplemente por haber detectado meeting/followup/etc.
+        if (type !== 'general' && detected) detected = true;
+      }
+  
       return { label, hint: HINTS[label] || '', detected };
     });
-
+  
     const missing = items.filter(i => !i.detected);
+  
+    let score;
+  
+    // Si todas las boxes están checkeadas, calidad 100%.
+    if (items.length && missing.length === 0) {
+      score = 100;
+    } else {
+      score = 5 + Math.min(12, Math.floor(wordCount / 2));
+      if (compose.to)      score += 3;
+      if (compose.subject) score += 2;
+      items.forEach(i => { if (i.detected) score += 12; });
+      score = Math.max(0, Math.min(99, score));
+    }
 
-    let score = 5 + Math.min(12, Math.floor(wordCount / 2));
-    if (compose.to)      score += 3;
-    if (compose.subject) score += 2;
-    items.forEach(i => { if (i.detected) score += 12; });
-    if (missing.length === 0) score += 8;
-    score = Math.max(0, Math.min(100, score));
-
-    const label = score >= 90 ? 'excellent' : score >= 75 ? 'strong' : score >= 60 ? 'decent' : 'needs work';
-    return { type, items, missing, score, scoreLabel: label, wordCount, insight: INSIGHTS[type] };
-  }
+  const label = score >= 90 ? 'excellent' : score >= 75 ? 'strong' : score >= 60 ? 'decent' : 'needs work';
+  return { type, items, missing, score, scoreLabel: label, wordCount, insight: INSIGHTS[type] };
+}
 
   /* ─── Render ─────────────────────────────────────────────── */
   function render() {
